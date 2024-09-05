@@ -6,8 +6,8 @@ import os
 # Конфигурация Telegram API
 api_id = 24502638  # Ваш api_id
 api_hash = '751d5f310032a2f2b1ec888bd5fc7fcb'  # Ваш api_hash
-phone = 'your_phone_number'
-channel_name = 'your_channel_name'  # Имя вашего канала
+phone = '+79114926205'  # Указанный номер телефона
+channel_name = '@alex_runch'  # Имя вашего канала
 
 # Конфигурация Amazon SES
 sender_email = 'mihailov.org@gmail.com'
@@ -36,12 +36,12 @@ def lambda_handler(event, context):
     # Указываем путь для хранения сессии Telethon в /tmp/ (это временная директория AWS Lambda)
     session_file_path = '/tmp/session_name'
     
-    # Создаем экземпляр TelegramClient с указанием пути для сессии
+    # Создаем экземпляр TelegramClient с указанием номера телефона
     client = TelegramClient(session_file_path, api_id, api_hash)
 
-    # Запускаем клиент и собираем данные о количестве подписчиков
+    # Запускаем клиент и явно передаем номер телефона
     with client:
-        client.loop.run_until_complete(client.start(phone=phone))
+        client.loop.run_until_complete(client.start(phone=phone))  # Телефон передается прямо в функцию
         subscriber_count = client.loop.run_until_complete(get_subscriber_count(client, channel_name))
 
     # Формируем текст для отправки по email
