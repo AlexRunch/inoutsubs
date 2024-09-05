@@ -1,0 +1,37 @@
+name: Deploy to AWS Lambda
+
+on:
+  push:
+    branches:
+      - main  # Запускать деплой при пуше в ветку main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v2
+
+    - name: Set up Python
+      uses: actions/setup-python@v2
+      with:
+        python-version: '3.9'
+
+    - name: Install dependencies
+      run: |
+        python -m venv venv
+        . venv/bin/activate
+        pip install -r requirements.txt
+        pip install telethon
+
+    - name: Package Lambda function
+      run: |
+        zip -r9 function.zip .
+    
+    - name: Upload to AWS Lambda
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region us-east-1  # Укажите ваш регион
