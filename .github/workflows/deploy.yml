@@ -33,7 +33,6 @@ jobs:
         . venv/bin/activate
         pip install -r requirements.txt || exit 1
         pip install telethon || exit 1
-      continue-on-error: true  # Это временно игнорирует ошибку на этом шаге для отладки
 
     - name: "Debug: Verify installed packages"
       run: |
@@ -44,6 +43,16 @@ jobs:
       run: |
         echo "Packaging Lambda function..."
         zip -r9 function.zip . || exit 1
+        echo "Checking size of ZIP file..."
+        ls -lh function.zip  # Проверка размера файла ZIP
+    
+    - name: "Debug: Check Lambda function existence"
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "Checking if Lambda function exists..."
+        aws lambda get-function --function-name telegram-subscriber-tracker --region us-east-1 || exit 1  # Проверка существования функции
 
     - name: Upload to AWS Lambda
       env:
