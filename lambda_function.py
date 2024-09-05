@@ -26,11 +26,16 @@ def send_email(subject, body):
     )
     return response
 
-async def get_subscriber_count(client, channel):
-    # Получаем количество подписчиков канала
+async def get_subscribers_list(client, channel):
+    # Получаем всех участников канала
     channel_entity = await client.get_entity(channel)
     participants = await client.get_participants(channel_entity)
-    return len(participants)
+
+    # Формируем список имен участников
+    subscribers = [f'{participant.first_name} {participant.last_name or ""} (@{participant.username or "N/A"})'
+                   for participant in participants]
+    
+    return subscribers
 
 def lambda_handler(event, context):
     # Указываем путь для хранения сессии Telethon в /tmp/ (это временная директория AWS Lambda)
@@ -39,18 +44,18 @@ def lambda_handler(event, context):
     # Создаем экземпляр TelegramClient с использованием bot_token
     client = TelegramClient(session_file_path, api_id, api_hash).start(bot_token=bot_token)
 
-    # Собираем данные о количестве подписчиков
+    # Собираем данные о подписчиках
     with client:
-        subscriber_count = client.loop.run_until_complete(get_subscriber_count(client, channel_name))
+        subscribers_list = client.loop.run_until_complete(get_subscribers_list(client, channel_name))
 
     # Формируем текст для отправки по email
-    email_subject = "Telegram Channel Report"
-    email_body = f"Старт. Сегодня {subscriber_count} подписчиков"
+    email_subject = "Список подписчиков канала Telegram"
+    email_body = "Подписчики канала @alex_runch:\n\n" + "\n".join(subscribers_list)
 
     # Отправляем email через Amazon SES
     send_email(email_subject, email_body)
 
     return {
         'statusCode': 200,
-        'body': json.dumps(f'Sent email with subscriber count: {subscriber_count}')
+        'body': json.dumps(f'Sent email with {len(subscribers_list)} subscribers')
     }
