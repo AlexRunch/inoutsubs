@@ -3,7 +3,7 @@ name: Deploy to AWS Lambda
 on:
   push:
     branches:
-      - main  # Деплой будет запускаться при пуше в ветку main
+      - main  # Деплой при пуше в ветку main
 
 jobs:
   deploy:
@@ -11,26 +11,26 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # Клонирует репозиторий
+      uses: actions/checkout@v4
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'  # Устанавливает Python 3.9
+        python-version: '3.9'
 
     - name: Install dependencies
       run: |
         python -m venv venv
         . venv/bin/activate
-        pip install -r requirements.txt  # Устанавливает зависимости
+        pip install -r requirements.txt  # Установка зависимостей из requirements.txt
 
     - name: Package Lambda function
       run: |
-        zip -r9 function.zip .  # Упаковывает весь код в ZIP
+        zip -r9 function.zip .  # Упаковываем код в ZIP
 
     - name: Deploy to AWS Lambda
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
-        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1  # Обновляет код функции Lambda
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1
