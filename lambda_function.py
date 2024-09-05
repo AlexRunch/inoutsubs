@@ -1,6 +1,7 @@
 import json
 import boto3
 from telethon import TelegramClient
+import os
 
 # Конфигурация Telegram API
 api_id = 24502638  # Ваш api_id
@@ -32,8 +33,11 @@ async def get_subscriber_count(client, channel):
     return len(participants)
 
 def lambda_handler(event, context):
-    # Создаем экземпляр TelegramClient
-    client = TelegramClient('session_name', api_id, api_hash)
+    # Указываем путь для хранения сессии Telethon в /tmp/ (это временная директория AWS Lambda)
+    session_file_path = '/tmp/session_name'
+    
+    # Создаем экземпляр TelegramClient с указанием пути для сессии
+    client = TelegramClient(session_file_path, api_id, api_hash)
 
     # Запускаем клиент и собираем данные о количестве подписчиков
     with client:
