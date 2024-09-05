@@ -17,7 +17,7 @@ ses_client = boto3.client('ses', region_name='eu-north-1')
 # Конфигурация DynamoDB
 dynamodb = boto3.resource('dynamodb', region_name='eu-north-1')
 table = dynamodb.Table('telegram-subscribers')  # Имя вашей таблицы в DynamoDB
-partition_key = '@alex_runch'
+partition_key = '@alex_runch'  # Указан ваш ключ
 
 def send_email(subject, body):
     # Функция для отправки email через Amazon SES
@@ -44,14 +44,14 @@ async def get_subscribers_list(client, channel):
 
 def get_previous_subscribers():
     # Получаем предыдущий список подписчиков из DynamoDB
-    response = table.get_item(Key={'channel_name': partition_key})
+    response = table.get_item(Key={'@alex_runch': partition_key})  # Используем ваш ключ @alex_runch
     return response.get('Item', {}).get('subscribers', {})
 
 def update_subscribers_in_db(subscribers):
     # Обновляем список подписчиков в базе данных DynamoDB
     table.put_item(
         Item={
-            'channel_name': partition_key,
+            '@alex_runch': partition_key,
             'subscribers': subscribers
         }
     )
