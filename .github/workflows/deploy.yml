@@ -3,7 +3,7 @@ name: Deploy to AWS Lambda
 on:
   push:
     branches:
-      - main  # Запускать деплой при пуше в ветку main
+      - main  # Деплой будет запускаться при пуше в ветку main
 
 jobs:
   deploy:
@@ -11,53 +11,26 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4  # Клонирует репозиторий
 
     - name: Set up Python
       uses: actions/setup-python@v4
       with:
-        python-version: '3.9'
-
-    - name: "Debug: Display environment variables"
-      run: |
-        echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"
-        echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
-        python --version
-        aws --version
-        pip --version
+        python-version: '3.9'  # Устанавливает Python 3.9
 
     - name: Install dependencies
       run: |
-        echo "Installing dependencies..."
         python -m venv venv
         . venv/bin/activate
-        pip install -r .github/workflows/requirements.txt || exit 1
-        pip install telethon || exit 1
-
-    - name: "Debug: Verify installed packages"
-      run: |
-        echo "Checking installed packages..."
-        pip list
+        pip install -r requirements.txt  # Устанавливает зависимости
 
     - name: Package Lambda function
       run: |
-        echo "Packaging Lambda function..."
-        zip -r9 function.zip . || exit 1
-        echo "Checking size of ZIP file..."
-        ls -lh function.zip
+        zip -r9 function.zip .  # Упаковывает весь код в ZIP
 
-    - name: "Check Lambda function existence"
+    - name: Deploy to AWS Lambda
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
-        echo "Checking if Lambda function exists..."
-        aws lambda get-function --function-name telegram-subscriber-tracker --region eu-north-1 || exit 1
-
-    - name: Upload to AWS Lambda
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      run: |
-        echo "Deploying to AWS Lambda..."
-        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1 || exit 1
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1  # Обновляет код функции Lambda
