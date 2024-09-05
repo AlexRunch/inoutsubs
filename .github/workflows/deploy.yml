@@ -11,10 +11,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # Обновлено до v4
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4  # Обновлено до v4
+      uses: actions/setup-python@v4
       with:
         python-version: '3.9'
 
@@ -23,36 +23,36 @@ jobs:
         echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"
         echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
         python --version
-        aws --version  # Проверка версии AWS CLI
-        pip --version  # Проверка версии pip
+        aws --version
+        pip --version
 
     - name: Install dependencies
       run: |
         echo "Installing dependencies..."
         python -m venv venv
         . venv/bin/activate
-        pip install -r requirements.txt || exit 1
+        pip install -r .github/workflows/requirements.txt  # Укажите правильный путь к requirements.txt
         pip install telethon || exit 1
 
     - name: "Debug: Verify installed packages"
       run: |
         echo "Checking installed packages..."
-        pip list  # Проверка списка установленных пакетов
+        pip list
 
     - name: Package Lambda function
       run: |
         echo "Packaging Lambda function..."
         zip -r9 function.zip . || exit 1
         echo "Checking size of ZIP file..."
-        ls -lh function.zip  # Проверка размера файла ZIP
-    
-    - name: "Debug: Check Lambda function existence"
+        ls -lh function.zip
+
+    - name: "Check Lambda function existence"
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         echo "Checking if Lambda function exists..."
-        aws lambda get-function --function-name telegram-subscriber-tracker --region us-east-1 || exit 1  # Проверка существования функции
+        aws lambda get-function --function-name telegram-subscriber-tracker --region us-east-1 || exit 1
 
     - name: Upload to AWS Lambda
       env:
