@@ -74,11 +74,13 @@ def lambda_handler(event, context):
     new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
     unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
 
-    # Формируем текст для отправки по email
+    # Формируем текст для отправки по email с использованием смайликов
     if new_subscribers or unsubscribed:
         email_subject = "Ежедневная сводка изменений подписчиков Telegram"
-        email_body = "Новые подписчики:\n" + "\n".join(new_subscribers.values()) + "\n\n" + \
-                     "Отписались:\n" + "\n".join(unsubscribed.values())
+        email_body = "✅ *Подписались:*\n" + \
+                     "\n".join([f"🎉 {value} — [Открыть профиль](https://t.me/{key})" for key, value in new_subscribers.items()]) + \
+                     "\n\n💔 *Отписались:*\n" + \
+                     "\n".join([f"😢 {value} — [Посмотреть профиль](https://t.me/{key})" for key, value in unsubscribed.items()])
     else:
         email_subject = "Ежедневная сводка: без изменений"
         email_body = "Новых подписчиков нет. Никто не отписался."
