@@ -18,20 +18,36 @@ jobs:
       with:
         python-version: '3.9'
 
+    - name: Debug: Display environment variables
+      run: |
+        echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"
+        echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
+        python --version
+        aws --version  # Проверка версии AWS CLI
+        pip --version  # Проверка версии pip
+
     - name: Install dependencies
       run: |
+        echo "Installing dependencies..."
         python -m venv venv
         . venv/bin/activate
-        pip install -r requirements.txt
-        pip install telethon
+        pip install -r requirements.txt || exit 1  # Остановка при ошибке установки
+        pip install telethon || exit 1  # Остановка при ошибке установки
+
+    - name: Debug: Verify installed packages
+      run: |
+        echo "Checking installed packages..."
+        pip list  # Список установленных пакетов для проверки
 
     - name: Package Lambda function
       run: |
-        zip -r9 function.zip .
+        echo "Packaging Lambda function..."
+        zip -r9 function.zip . || exit 1  # Остановка при ошибке упаковки
     
     - name: Upload to AWS Lambda
       env:
         AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
-        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region us-east-1  # Укажите ваш регион
+        echo "Deploying to AWS Lambda..."
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region us-east-1 || exit 1  # Укажите ваш регион
