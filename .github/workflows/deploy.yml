@@ -3,7 +3,7 @@ name: Deploy to AWS Lambda
 on:
   push:
     branches:
-      - main  # Деплой при пуше в ветку main
+      - main  # Деплой при каждом пуше в ветку main
 
 jobs:
   deploy:
@@ -11,22 +11,23 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v4  # Забираем код из репозитория
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v4  # Устанавливаем Python
       with:
         python-version: '3.9'
 
     - name: Install dependencies
       run: |
-        python -m venv venv
-        . venv/bin/activate
-        pip install -r requirements.txt  # Установка зависимостей из requirements.txt
-
+        python -m venv venv  # Создаем виртуальное окружение
+        . venv/bin/activate   # Активируем виртуальное окружение
+        pip install --upgrade pip  # Обновляем pip
+        pip install -r requirements.txt -t .  # Устанавливаем зависимости в текущую директорию (.)
+    
     - name: Package Lambda function
       run: |
-        zip -r9 function.zip .  # Упаковываем код в ZIP
+        zip -r9 function.zip .  # Упаковываем все файлы и зависимости в ZIP-файл
 
     - name: Deploy to AWS Lambda
       env:
