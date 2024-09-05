@@ -31,7 +31,7 @@ jobs:
         echo "Installing dependencies..."
         python -m venv venv
         . venv/bin/activate
-        pip install -r .github/workflows/requirements.txt  # Укажите правильный путь к requirements.txt
+        pip install -r .github/workflows/requirements.txt || exit 1
         pip install telethon || exit 1
 
     - name: "Debug: Verify installed packages"
@@ -52,7 +52,7 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         echo "Checking if Lambda function exists..."
-        aws lambda get-function --function-name telegram-subscriber-tracker --region us-east-1 || exit 1
+        aws lambda get-function --function-name telegram-subscriber-tracker --region eu-north-1 || exit 1
 
     - name: Upload to AWS Lambda
       env:
@@ -60,4 +60,4 @@ jobs:
         AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       run: |
         echo "Deploying to AWS Lambda..."
-        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region us-east-1 || exit 1
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1 || exit 1
