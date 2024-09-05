@@ -11,14 +11,14 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4  # Обновлено до версии v4
+      uses: actions/checkout@v4  # Обновлено до v4
 
     - name: Set up Python
-      uses: actions/setup-python@v4  # Обновлено до версии v4, поддерживает Node.js 20
+      uses: actions/setup-python@v4  # Обновлено до v4
       with:
         python-version: '3.9'
 
-    - name: "Debug Display environment variables"  # Убрали двоеточие или используем кавычки
+    - name: "Debug: Display environment variables"
       run: |
         echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}"
         echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}"
@@ -31,5 +31,24 @@ jobs:
         echo "Installing dependencies..."
         python -m venv venv
         . venv/bin/activate
-        pip install -r requirements.txt || exit 1  # Остановка при ошибке установки
-        pip install telethon || exit
+        pip install -r requirements.txt || exit 1
+        pip install telethon || exit 1
+      continue-on-error: true  # Это временно игнорирует ошибку на этом шаге для отладки
+
+    - name: "Debug: Verify installed packages"
+      run: |
+        echo "Checking installed packages..."
+        pip list  # Проверка списка установленных пакетов
+
+    - name: Package Lambda function
+      run: |
+        echo "Packaging Lambda function..."
+        zip -r9 function.zip . || exit 1
+
+    - name: Upload to AWS Lambda
+      env:
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      run: |
+        echo "Deploying to AWS Lambda..."
+        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region us-east-1 || exit 1
