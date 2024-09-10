@@ -40,7 +40,9 @@ async def get_subscribers_list(client, channel):
     subscribers = {f'{participant.id}': f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
                    for participant in participants}
     
-    return subscribers
+    # Возвращаем данные в виде словаря, где ключом будет username, если он есть, иначе - ID
+    return {participant.username or participant.id: f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})' 
+            for participant in participants}
 
 def get_previous_subscribers():
     # Получаем предыдущий список подписчиков из DynamoDB
@@ -74,13 +76,13 @@ def lambda_handler(event, context):
     new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
     unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
 
-    # Формируем текст для отправки по email с использованием смайликов
+    # Формируем текст для отправки по email с использованием username вместо ID, если он доступен
     if new_subscribers or unsubscribed:
         email_subject = "Ежедневная сводка изменений подписчиков Telegram"
         email_body = "✅ *Подписались:*\n" + \
-                     "\n".join([f"🎉 {value} — [Открыть профиль](https://t.me/{key})" for key, value in new_subscribers.items()]) + \
+                     "\n".join([f"🎉 {value} — [Открыть профиль](https://t.me/{key})" for key, value in new_subscribers.items() if isinstance(key, str)]) + \
                      "\n\n💔 *Отписались:*\n" + \
-                     "\n".join([f"😢 {value} — [Посмотреть профиль](https://t.me/{key})" for key, value in unsubscribed.items()])
+                     "\n".join([f"😢 {value} — [Посмотреть профиль](https://t.me/{key})" for key, value in unsubscribed.items() if isinstance(key, str)])
     else:
         email_subject = "Ежедневная сводка: без изменений"
         email_body = "Новых подписчиков нет. Никто не отписался."
