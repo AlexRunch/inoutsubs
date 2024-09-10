@@ -37,12 +37,11 @@ async def get_subscribers_list(client, channel):
     participants = await client.get_participants(channel_entity)
 
     # Формируем список имен участников
-    subscribers = {f'{participant.id}': f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
+    # Преобразуем ID в строку с помощью str(participant.id)
+    subscribers = {str(participant.username or participant.id): f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
                    for participant in participants}
     
-    # Возвращаем данные в виде словаря, где ключом будет username, если он есть, иначе - ID
-    return {participant.username or participant.id: f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})' 
-            for participant in participants}
+    return subscribers
 
 def get_previous_subscribers():
     # Получаем предыдущий список подписчиков из DynamoDB
@@ -54,7 +53,7 @@ def update_subscribers_in_db(subscribers):
     table.put_item(
         Item={
             '@alex_runch': partition_key,
-            'subscribers': subscribers
+            'subscribers': subscribers  # Ключи и значения в словаре теперь строки
         }
     )
 
