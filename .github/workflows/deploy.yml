@@ -3,35 +3,40 @@ name: Deploy to AWS Lambda
 on:
   push:
     branches:
-      - main  # Деплой при каждом пуше в ветку main
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4  # Забираем код из репозитория
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    - name: Set up Python
-      uses: actions/setup-python@v4  # Устанавливаем Python
-      with:
-        python-version: '3.9'
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
 
-    - name: Install dependencies
-      run: |
-        python -m venv venv  # Создаем виртуальное окружение
-        . venv/bin/activate   # Активируем виртуальное окружение
-        pip install --upgrade pip  # Обновляем pip
-        pip install -r requirements.txt -t .  # Устанавливаем зависимости в текущую директорию (.)
-    
-    - name: Package Lambda function
-      run: |
-        zip -r9 function.zip .  # Упаковываем все файлы и зависимости в ZIP-файл
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Deploy to AWS Lambda
-      env:
-        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      run: |
-        aws lambda update-function-code --function-name telegram-subscriber-tracker --zip-file fileb://function.zip --region eu-north-1
+      - name: Deploy Bind Function to Lambda
+        run: |
+          zip -r function.zip .
+          aws lambda update-function-code --function-name telegram-subscriber-bind --zip-file fileb://function.zip
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-north-1
+
+      - name: Deploy Daily Update Function to Lambda
+        run: |
+          zip -r function.zip .
+          aws lambda update-function-code --function-name telegram-subscriber-daily-update --zip-file fileb://function.zip
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          AWS_REGION: eu-north-1
