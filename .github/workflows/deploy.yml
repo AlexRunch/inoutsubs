@@ -23,18 +23,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # Упаковка и деплой функции привязки канала
       - name: Deploy Bind Function to Lambda
         run: |
-          zip -r function.zip .
+          zip -r function.zip bind_function.py
           aws lambda update-function-code --function-name telegram-subscriber-bind --zip-file fileb://function.zip
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: eu-north-1
 
+      # Упаковка и деплой функции ежедневной рассылки
       - name: Deploy Daily Update Function to Lambda
         run: |
-          zip -r function.zip .
+          zip -r function.zip daily_update_function.py
           aws lambda update-function-code --function-name telegram-subscriber-daily-update --zip-file fileb://function.zip
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
