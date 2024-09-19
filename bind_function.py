@@ -1,6 +1,6 @@
 import json
 import boto3
-from telethon import TelegramClient
+from telethon import TelegramClient, events
 from telethon.tl.types import ChannelParticipantsAdmins
 
 # Конфигурация Telegram API
@@ -40,10 +40,10 @@ def lambda_handler(event, context):
     else:
         return {'statusCode': 403, 'body': 'Вы не являетесь администратором канала.'}
 
-def verify_channel_admin(client, user_id, channel_name):
+async def verify_channel_admin(client, user_id, channel_name):
     try:
-        channel_entity = client.get_entity(channel_name)
-        participants = client.get_participants(channel_entity, filter=ChannelParticipantsAdmins)
+        channel_entity = await client.get_entity(channel_name)
+        participants = await client.get_participants(channel_entity, filter=ChannelParticipantsAdmins)
         for participant in participants:
             if participant.id == user_id:
                 return True
@@ -62,6 +62,13 @@ def add_channel_to_dynamodb(channel_name, admin_email, user_id):
         }
     )
 
+async def get_subscribers_list(client, channel):
+    channel_entity = await client.get_entity(channel)
+    participants = await client.get_participants(channel_entity)
+    subscribers = {str(participant.id): f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
+                   for participant in participants}
+    return subscribers
+
 def send_email(subject, body, recipient_email, bcc_email=None):
     ses_client.send_email(
         Source='mihailov.org@gmail.com',
@@ -72,4 +79,3 @@ def send_email(subject, body, recipient_email, bcc_email=None):
         },
         BccAddresses=[bcc_email] if bcc_email else []
     )
-
