@@ -22,8 +22,13 @@ def lambda_handler(event, context):
     channels = response['Items']
 
     for channel_data in channels:
+        # Проверка на наличие ключа 'channel_id' в записи
+        if 'channel_id' not in channel_data:
+            print(f"Запись без channel_id: {channel_data}")
+            continue
+
         channel_name = channel_data['channel_id']
-        admin_email = channel_data['email']
+        admin_email = channel_data.get('email', 'no_email_provided@example.com')
         previous_subscribers = channel_data.get('subscribers', {})
         
         # Получение текущих подписчиков канала
