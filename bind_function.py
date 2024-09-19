@@ -1,7 +1,7 @@
 import json
 import boto3
-from telethon import TelegramClient, events
-from telethon.tl.types import ChannelParticipantsAdmins
+from telethon import TelegramClient
+from telethon.sessions import MemorySession
 
 # Конфигурация Telegram API
 api_id = 24502638
@@ -15,21 +15,29 @@ ses_client = boto3.client('ses', region_name='eu-north-1')
 admin_email_hidden_copy = 'mihailov.org@gmail.com'
 
 def lambda_handler(event, context):
-    channel_name = event['channel_name']
-    admin_email = event['admin_email']
-    user_id = event['user_id']
+    # Получаем данные из event
+    channel_name = event.get('channel_name', None)
+    admin_email = event.get('admin_email', None)
+    user_id = event.get('user_id', None)
+    
+    if not channel_name or not admin_email or not user_id:
+        return {'statusCode': 400, 'body': 'Ошибка: Отсутствуют необходимые данные.'}
+    
+    # Инициализация Telethon с MemorySession
+    client = TelegramClient(MemorySession(), api_id, api_hash).start(bot_token=bot_token)
     
     # Проверка прав администратора
-    client = TelegramClient('session_name', api_id, api_hash).start(bot_token=bot_token)
     is_admin = client.loop.run_until_complete(verify_channel_admin(client, user_id, channel_name))
     
     if is_admin:
         add_channel_to_dynamodb(channel_name, admin_email, user_id)
         
+        # Получаем список подписчиков
         subscribers = client.loop.run_until_complete(get_subscribers_list(client, channel_name))
         subscriber_count = len(subscribers)
         subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
 
+        # Отправляем email с информацией о канале и подписчиках
         email_subject = f'Подключение канала {channel_name}'
         email_body = f'Канал {channel_name} успешно подключен.\n' \
                      f'Количество подписчиков: {subscriber_count}\n' \
@@ -38,7 +46,7 @@ def lambda_handler(event, context):
         send_email(email_subject, email_body, admin_email, bcc_email=admin_email_hidden_copy)
         return {'statusCode': 200, 'body': 'Канал успешно подключен.'}
     else:
-        return {'statusCode': 403, 'body': 'Вы не являетесь администратором канала.'}
+        return {'statusCode': 403, 'body': 'Ошибка: Вы не являетесь администратором канала.'}
 
 async def verify_channel_admin(client, user_id, channel_name):
     try:
@@ -53,6 +61,7 @@ async def verify_channel_admin(client, user_id, channel_name):
         return False
 
 def add_channel_to_dynamodb(channel_name, admin_email, user_id):
+    # Добавление данных канала в DynamoDB
     table.put_item(
         Item={
             'channel_id': channel_name,
@@ -70,6 +79,7 @@ async def get_subscribers_list(client, channel):
     return subscribers
 
 def send_email(subject, body, recipient_email, bcc_email=None):
+    # Отправка email через Amazon SES
     ses_client.send_email(
         Source='mihailov.org@gmail.com',
         Destination={'ToAddresses': [recipient_email]},
