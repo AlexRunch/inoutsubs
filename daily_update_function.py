@@ -43,6 +43,13 @@ def lambda_handler(event, context):
     
     return {'statusCode': 200, 'body': 'Ежедневная рассылка завершена.'}
 
+async def get_subscribers_list(client, channel):
+    channel_entity = await client.get_entity(channel)
+    participants = await client.get_participants(channel_entity)
+    subscribers = {str(participant.id): f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
+                   for participant in participants}
+    return subscribers
+
 def send_email(subject, body, recipient_email):
     ses_client.send_email(
         Source='mihailov.org@gmail.com',
@@ -52,4 +59,3 @@ def send_email(subject, body, recipient_email):
             'Body': {'Text': {'Data': body}}
         }
     )
-
