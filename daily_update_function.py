@@ -1,6 +1,7 @@
 import json
 import boto3
 from telethon import TelegramClient
+from telethon.sessions import MemorySession
 
 # Конфигурация Telegram API
 api_id = 24502638
@@ -13,21 +14,26 @@ table = dynamodb.Table('telegram-subscribers')
 ses_client = boto3.client('ses', region_name='eu-north-1')
 
 def lambda_handler(event, context):
+    # Используем MemorySession вместо SQLite для работы в среде Lambda
+    client = TelegramClient(MemorySession(), api_id, api_hash).start(bot_token=bot_token)
+    
+    # Получение всех каналов из DynamoDB
     response = table.scan()
     channels = response['Items']
-    
-    client = TelegramClient('session_name', api_id, api_hash).start(bot_token=bot_token)
-    
+
     for channel_data in channels:
         channel_name = channel_data['channel_id']
         admin_email = channel_data['email']
-        previous_subscribers = channel_data['subscribers']
+        previous_subscribers = channel_data.get('subscribers', {})
         
+        # Получение текущих подписчиков канала
         current_subscribers = client.loop.run_until_complete(get_subscribers_list(client, channel_name))
         
+        # Определение новых подписчиков и отписавшихся
         new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
         unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
         
+        # Если есть изменения, отправляем email
         if new_subscribers or unsubscribed:
             email_subject = f'Обновления по подписчикам канала {channel_name}'
             email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
@@ -35,6 +41,7 @@ def lambda_handler(event, context):
             
             send_email(email_subject, email_body, admin_email)
             
+        # Обновление списка подписчиков в DynamoDB
         table.update_item(
             Key={'channel_id': channel_name},
             UpdateExpression="set subscribers = :s",
