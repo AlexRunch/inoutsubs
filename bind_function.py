@@ -5,6 +5,7 @@ from telethon import TelegramClient
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
 import asyncio
+from telethon.sessions import MemorySession
 
 # Настройка логгера
 logger = logging.getLogger()
@@ -20,12 +21,12 @@ DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers')
 
 async def send_message(chat_id, text):
-    async with TelegramClient('bot', API_ID, API_HASH) as client:
+    async with TelegramClient(MemorySession(), API_ID, API_HASH) as client:
         await client.start(bot_token=BOT_TOKEN)
         await client.send_message(chat_id, text, parse_mode='html')
 
 async def verify_bot_admin(channel_name):
-    async with TelegramClient('bot', API_ID, API_HASH) as client:
+    async with TelegramClient(MemorySession(), API_ID, API_HASH) as client:
         await client.start(bot_token=BOT_TOKEN)
         try:
             channel = await client.get_input_entity(channel_name)
