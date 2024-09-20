@@ -63,6 +63,10 @@ async def verify_channel_admin(client, user_id, channel_name):
 # Главная функция для Lambda
 def lambda_handler(event, context):
     try:
+        # Проверка на наличие 'body' в event
+        if 'body' not in event:
+            raise KeyError("'body' не найден в event")
+
         body = json.loads(event['body'])
         message = body.get('message', {})
         chat_id = message.get('chat', {}).get('id')
@@ -97,6 +101,9 @@ def lambda_handler(event, context):
 
         save_session_to_s3(chat_id, client.session)
         return {'statusCode': 200, 'body': 'OK'}
+    except KeyError as e:
+        print(f"Произошла ошибка: {str(e)}")
+        return {'statusCode': 400, 'body': f"Произошла ошибка: {str(e)}"}
     except Exception as e:
         print(f"Произошла ошибка: {str(e)}")
         if 'chat_id' in locals():
