@@ -21,22 +21,27 @@ DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers')
 
 async def send_message(chat_id, text):
-    async with TelegramClient(MemorySession(), API_ID, API_HASH) as client:
+    client = TelegramClient(MemorySession(), API_ID, API_HASH)
+    try:
         await client.start(bot_token=BOT_TOKEN)
         await client.send_message(chat_id, text, parse_mode='html')
+    finally:
+        await client.disconnect()
 
 async def verify_bot_admin(channel_name):
-    async with TelegramClient(MemorySession(), API_ID, API_HASH) as client:
+    client = TelegramClient(MemorySession(), API_ID, API_HASH)
+    try:
         await client.start(bot_token=BOT_TOKEN)
-        try:
-            channel = await client.get_input_entity(channel_name)
-            bot_user = await client.get_me()
-            admins = await client(GetParticipantsRequest(
-                channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
-            return any(admin.id == bot_user.id for admin in admins.users)
-        except Exception as e:
-            logger.error(f"Ошибка проверки прав администратора бота: {e}")
-            return False
+        channel = await client.get_input_entity(channel_name)
+        bot_user = await client.get_me()
+        admins = await client(GetParticipantsRequest(
+            channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
+        return any(admin.id == bot_user.id for admin in admins.users)
+    except Exception as e:
+        logger.error(f"Ошибка проверки прав администратора бота: {e}")
+        return False
+    finally:
+        await client.disconnect()
 
 async def process_message(event):
     chat_id = event['message']['chat']['id']
@@ -74,7 +79,8 @@ def lambda_handler(event, context):
         logger.info(f"Тело запроса: {body}")
         
         if 'message' in body:
-            asyncio.get_event_loop().run_until_complete(process_message(body))
+            loop = asyncio.get_event_loop()
+            loop.run_until_complete(process_message(body))
         
         return {'statusCode': 200, 'body': json.dumps('OK')}
     except Exception as e:
