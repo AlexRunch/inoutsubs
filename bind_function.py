@@ -8,6 +8,7 @@ from botocore.exceptions import ClientError
 from telethon.sessions import StringSession
 import asyncio
 import traceback
+from telethon.errors.rpcerrorlist import FloodWaitError
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -132,7 +133,18 @@ async def async_lambda_handler(event, context):
         logger.info(f"Тело запроса: {body}")
         
         client = TelegramClient(StringSession(), API_ID, API_HASH)
-        await client.start(bot_token=BOT_TOKEN)
+        try:
+            await client.start(bot_token=BOT_TOKEN)
+        except FloodWaitError as e:
+            wait_time = e.seconds
+            logger.warning(f"Получена ошибка FloodWaitError. Необходимо подождать {wait_time} секунд.")
+            return {
+                'statusCode': 429,
+                'body': json.dumps({
+                    'error': 'Слишком много запросов. Пожалуйста, попробуйте позже.',
+                    'wait_time': wait_time
+                })
+            }
         
         if 'message' in body:
             message = body['message']
@@ -197,3 +209,4 @@ def lambda_handler(event, context):
 # 7. Исправлена ошибка EOF при создании клиента Telegram
 # 8. Исправлена ошибка с использованием ChatAction.GetParticipantsRequest
 # 9. Добавлено дополнительное логирование в функцию save_channel_to_dynamodb для отслеживания ошибок доступа
+# 10. Добавлена обработка FloodWaitError при запуске клиента Telegram
