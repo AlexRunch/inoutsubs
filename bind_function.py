@@ -6,6 +6,7 @@ from telethon import TelegramClient, events
 from telethon.tl.types import ChannelParticipantsAdmins
 from botocore.exceptions import ClientError
 from telethon.sessions import StringSession
+import asyncio
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -92,7 +93,7 @@ async def process_channel_connection(client, chat_id, user_id, channel_name):
         send_message(chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
                               f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
 
-def lambda_handler(event, context):
+async def lambda_handler(event, context):
     chat_id = None
     
     try:
@@ -121,7 +122,7 @@ def lambda_handler(event, context):
                 return {'statusCode': 200, 'body': 'Запрошено название канала'}
 
         if text and text.startswith('@'):
-            with TelegramClient(StringSession(), API_ID, API_HASH) as client:
+            async with TelegramClient(StringSession(), API_ID, API_HASH) as client:
                 await client.start(bot_token=BOT_TOKEN)
                 await process_channel_connection(client, chat_id, user_id, text)
 
@@ -132,6 +133,9 @@ def lambda_handler(event, context):
         if chat_id:
             send_message(chat_id, f"Произошла ошибка: {str(e)}")
         return {'statusCode': 400, 'body': f'Произошла ошибка: {str(e)}'}
+
+def lambda_handler_wrapper(event, context):
+    return asyncio.get_event_loop().run_until_complete(lambda_handler(event, context))
 
 # Объяснение исправленных ошибок:
 # 1. Использование констант вместо глобальных переменных для конфигурации (API_ID, API_HASH и т.д.)
