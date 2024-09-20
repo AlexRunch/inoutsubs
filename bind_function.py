@@ -9,6 +9,8 @@ from telethon.sessions import StringSession
 import asyncio
 import traceback
 from telethon.errors.rpcerrorlist import FloodWaitError
+from telethon.tl.functions.messages import SetTypingRequest
+from telethon.tl.types import SendMessageTypingAction
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -35,6 +37,13 @@ async def send_message(client, chat_id, text, buttons=None):
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         raise
+
+async def show_typing_animation(client, chat_id, duration=3):
+    try:
+        await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
+        await asyncio.sleep(duration)
+    except Exception as e:
+        logger.error(f"Ошибка при отображении анимации набора текста: {e}")
 
 async def verify_channel_admin(client, user_id, channel_name):
     try:
@@ -83,6 +92,8 @@ def save_channel_to_dynamodb(channel_name, user_id):
         if e.response['Error']['Code'] == 'AccessDeniedException':
             logger.error(f"Ошибка доступа при сохранении данных в DynamoDB: {e}")
             logger.error("Проверьте настройки IAM роли для Lambda функции")
+            logger.error(f"Текущая роль: {boto3.client('sts').get_caller_identity().get('Arn')}")
+            logger.error(f"Необходимые разрешения: dynamodb:PutItem для ресурса {TABLE.table_arn}")
         else:
             logger.error(f"Ошибка сохранения данных в DynamoDB: {e}")
         raise
@@ -101,16 +112,26 @@ def stop_updates(channel_name):
 
 async def process_channel_connection(client, chat_id, user_id, channel_name):
     try:
+        await show_typing_animation(client, chat_id)
         is_admin = await verify_channel_admin(client, user_id, channel_name)
         if is_admin:
             await send_message(client, chat_id, f"Вы являетесь администратором канала {channel_name}. Канал будет подключен.")
             
+            await show_typing_animation(client, chat_id)
             subscribers = await get_subscribers_list(client, channel_name)
             subscriber_count = len(subscribers)
             subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
 
-            save_channel_to_dynamodb(channel_name, user_id)
-            send_email(channel_name, 'admin@example.com', subscriber_count, subscriber_list)
+            try:
+                save_channel_to_dynamodb(channel_name, user_id)
+                send_email(channel_name, 'admin@example.com', subscriber_count, subscriber_list)
+                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен и сохранен.")
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'AccessDeniedException':
+                    await send_message(client, chat_id, "Произошла ошибка при сохранении данных. Пожалуйста, обратитесь к администратору.")
+                    logger.error(f"Ошибка доступа при сохранении данных: {e}")
+                else:
+                    raise
         else:
             await send_message(client, chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
                                   f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
@@ -153,6 +174,7 @@ async def async_lambda_handler(event, context):
             text = message.get('text', '')
 
             if text == '/start':
+                await show_typing_animation(client, chat_id)
                 instructions = ("Привет! Я помогу вам подключить канал для получения статистики.\n"
                                 "Чтобы начать, нажмите кнопку 'Проверить канал' и введите название вашего канала.")
                 buttons = [
@@ -164,15 +186,18 @@ async def async_lambda_handler(event, context):
 
             if text and text.startswith('@'):
                 await process_channel_connection(client, chat_id, user_id, text)
+                return {'statusCode': 200, 'body': json.dumps('Обработка подключения канала завершена')}
 
         elif 'callback_query' in body:
             callback_query = body['callback_query']
             chat_id = callback_query['message']['chat']['id']
             callback_data = callback_query['data']
             if callback_data == 'check_channel':
+                await show_typing_animation(client, chat_id)
                 await send_message(client, chat_id, "Введите название канала для проверки.")
                 return {'statusCode': 200, 'body': json.dumps('Запрошено название канала')}
             elif callback_data == 'stop_updates':
+                await show_typing_animation(client, chat_id)
                 # Здесь нужно добавить логику для определения канала пользователя
                 # Предположим, что у нас есть функция get_user_channel(user_id)
                 channel_name = get_user_channel(callback_query['from']['id'])
@@ -189,7 +214,7 @@ async def async_lambda_handler(event, context):
         error_message = f"Произошла ошибка: {str(e)}\n{traceback.format_exc()}"
         logger.error(error_message)
         if chat_id and client:
-            await send_message(client, chat_id, f"Произошла ошибка при обработке запроса: {str(e)}. Пожалуйста, попробуйте еще раз или обратитесь в поддержку.")
+            await send_message(client, chat_id, f"Произошла ошибка при обработке запроса: {str(e)}. Бот остановлен. Пожалуйста, обратитесь в поддержку.")
         return {'statusCode': 400, 'body': json.dumps(error_message)}
     finally:
         if client:
@@ -210,3 +235,7 @@ def lambda_handler(event, context):
 # 8. Исправлена ошибка с использованием ChatAction.GetParticipantsRequest
 # 9. Добавлено дополнительное логирование в функцию save_channel_to_dynamodb для отслеживания ошибок доступа
 # 10. Добавлена обработка FloodWaitError при запуске клиента Telegram
+# 11. Добавлена функция show_typing_animation для отображения анимации набора текста
+# 12. Добавлены вызовы show_typing_animation перед отправкой сообщений для улучшения пользовательского опыта
+# 13. Улучшена обработка ошибки AccessDeniedException при сохранении данных в DynamoDB
+# 14. Добавлена остановка бота после первой ошибки для предотвращения блокировки со стороны Telegram
