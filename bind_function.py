@@ -1,7 +1,7 @@
 import json
 import boto3
 import logging
-from telethon import TelegramClient, events
+from telethon import TelegramClient, events, Button
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
 from botocore.exceptions import ClientError
@@ -32,6 +32,8 @@ logger.setLevel(logging.INFO)
 
 async def send_message(client, chat_id, text, buttons=None):
     try:
+        if buttons:
+            buttons = [[Button.inline(btn['text'], btn['callback_data']) for btn in row] for row in buttons]
         await client.send_message(chat_id, text, buttons=buttons, parse_mode='html')
         logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
     except Exception as e:
@@ -214,7 +216,7 @@ async def async_lambda_handler(event, context):
         error_message = f"Произошла ошибка: {str(e)}\n{traceback.format_exc()}"
         logger.error(error_message)
         if chat_id and client:
-            await send_message(client, chat_id, f"Произошла ошибка при обработке запроса: {str(e)}. Бот остановлен. Пожалуйста, обратитесь в поддержку.")
+            await send_message(client, chat_id, f"Произошла ошибка при обработке запроса. Пожалуйста, обратитесь в поддержку.")
         return {'statusCode': 400, 'body': json.dumps(error_message)}
     finally:
         if client:
@@ -238,4 +240,5 @@ def lambda_handler(event, context):
 # 11. Добавлена функция show_typing_animation для отображения анимации набора текста
 # 12. Добавлены вызовы show_typing_animation перед отправкой сообщений для улучшения пользовательского опыта
 # 13. Улучшена обработка ошибки AccessDeniedException при сохранении данных в DynamoDB
-# 14. Добавлена остановка бота после первой ошибки для предотвращения блокировки со стороны Telegram
+# 14. Изменено сообщение об ошибке для пользователя, чтобы не раскрывать технические детали
+# 15. Обновлена функция send_message для корректной работы с кнопками Telegram API
