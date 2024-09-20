@@ -18,15 +18,16 @@ admin_email_hidden_copy = 'mihailov.org@gmail.com'
 
 def lambda_handler(event, context):
     try:
-        # Логирование события для отладки
+        # Логируем весь запрос от Webhook
         print(f"Received event: {json.dumps(event)}")
-
-        # Получаем данные из event
+        
         body = json.loads(event.get('body', '{}'))
         message = body.get('message', {})
         chat_id = message.get('chat', {}).get('id')
         text = message.get('text', '')
         user_id = message.get('from', {}).get('id')
+
+        print(f"Chat ID: {chat_id}, User ID: {user_id}, Text: {text}")
 
         if not chat_id or not user_id:
             return {'statusCode': 400, 'body': 'Ошибка: Отсутствуют необходимые данные.'}
@@ -132,7 +133,9 @@ def send_message(chat_id, text):
             'chat_id': chat_id,
             'text': text
         }
+        print(f"Отправка сообщения: {data}")
         r = requests.post(url, json=data)
+        print(f"Ответ Telegram API: {r.status_code}, {r.text}")
         return r.json()
     except Exception as e:
         print(f"Ошибка при отправке сообщения: {e}")
