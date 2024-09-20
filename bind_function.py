@@ -7,6 +7,7 @@ from telethon.tl.types import ChannelParticipantsAdmins
 from botocore.exceptions import ClientError
 from telethon.sessions import StringSession
 import asyncio
+import traceback
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -37,6 +38,7 @@ def send_message(chat_id, text, buttons=None):
         logger.info(f"Сообщение отправлено успешно: {response.json()}")
     except requests.RequestException as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
+        raise
 
 async def verify_channel_admin(client, user_id, channel_name):
     try:
@@ -45,7 +47,7 @@ async def verify_channel_admin(client, user_id, channel_name):
         return any(admin.id == user_id for admin in admins)
     except Exception as e:
         logger.error(f"Ошибка проверки прав администратора: {e}")
-        return False
+        raise
 
 async def get_subscribers_list(client, channel):
     try:
@@ -54,7 +56,7 @@ async def get_subscribers_list(client, channel):
         return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
     except Exception as e:
         logger.error(f"Ошибка получения списка подписчиков: {e}")
-        return {}
+        raise
 
 def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     email_subject = f'Подключение канала {channel_name}'
@@ -74,12 +76,14 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         )
     except ClientError as e:
         logger.error(f"Ошибка отправки email через SES: {e}")
+        raise
 
 def save_channel_to_dynamodb(channel_name, user_id):
     try:
         TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
     except ClientError as e:
         logger.error(f"Ошибка сохранения данных в DynamoDB: {e}")
+        raise
 
 def stop_updates(channel_name):
     try:
@@ -91,21 +95,28 @@ def stop_updates(channel_name):
         logger.info(f"Обновления для канала {channel_name} остановлены")
     except ClientError as e:
         logger.error(f"Ошибка остановки обновлений в DynamoDB: {e}")
+        raise
 
 async def process_channel_connection(client, chat_id, user_id, channel_name):
-    is_admin = await verify_channel_admin(client, user_id, channel_name)
-    if is_admin:
-        send_message(chat_id, f"Вы являетесь администратором канала {channel_name}. Канал будет подключен.")
-        
-        subscribers = await get_subscribers_list(client, channel_name)
-        subscriber_count = len(subscribers)
-        subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
+    try:
+        is_admin = await verify_channel_admin(client, user_id, channel_name)
+        if is_admin:
+            send_message(chat_id, f"Вы являетесь администратором канала {channel_name}. Канал будет подключен.")
+            
+            subscribers = await get_subscribers_list(client, channel_name)
+            subscriber_count = len(subscribers)
+            subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
 
-        save_channel_to_dynamodb(channel_name, user_id)
-        send_email(channel_name, 'admin@example.com', subscriber_count, subscriber_list)
-    else:
-        send_message(chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
-                              f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
+            save_channel_to_dynamodb(channel_name, user_id)
+            send_email(channel_name, 'admin@example.com', subscriber_count, subscriber_list)
+        else:
+            send_message(chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
+                                  f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
+    except Exception as e:
+        error_message = f"Ошибка при подключении канала: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_message)
+        send_message(chat_id, f"Произошла ошибка при подключении канала: {str(e)}")
+        raise
 
 async def async_lambda_handler(event, context):
     chat_id = None
@@ -161,26 +172,20 @@ async def async_lambda_handler(event, context):
 
         return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
-    except EOFError as e:
-        logger.error(f"Произошла ошибка EOF: {e}")
-        if chat_id:
-            send_message(chat_id, "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз.")
-        return {'statusCode': 400, 'body': json.dumps('Произошла ошибка EOF при чтении данных')}
     except Exception as e:
-        logger.error(f"Произошла ошибка: {e}")
+        error_message = f"Произошла ошибка: {str(e)}\n{traceback.format_exc()}"
+        logger.error(error_message)
         if chat_id:
-            send_message(chat_id, f"Произошла ошибка: {str(e)}")
-        return {'statusCode': 400, 'body': json.dumps(f'Произошла ошибка: {str(e)}')}
+            send_message(chat_id, f"Произошла ошибка при обработке запроса: {str(e)}. Пожалуйста, попробуйте еще раз или обратитесь в поддержку.")
+        return {'statusCode': 400, 'body': json.dumps(error_message)}
 
 def lambda_handler(event, context):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(async_lambda_handler(event, context))
 
 # Исправления:
-# 1. Добавлена проверка наличия 'body' в event перед его использованием
-# 2. Улучшена обработка ошибок в async_lambda_handler
-# 3. Добавлено больше логирования для отслеживания процесса выполнения
-# 4. Оптимизирована структура кода для более эффективной обработки различных типов событий
-# 5. Добавлена кнопка "Стоп" и обработка команды остановки обновлений
-# 6. Добавлена специальная обработка ошибки EOFError
-# 7. Исправлена проблема с аутентификацией клиента Telethon
+# 1. Добавлено более подробное логирование ошибок с использованием traceback
+# 2. Улучшена обработка исключений в каждой функции
+# 3. Добавлены более информативные сообщения об ошибках для пользователя
+# 4. Расширено логирование в async_lambda_handler для лучшего отслеживания процесса выполнения
+# 5. Добавлена отправка подробной информации об ошибке в случае неудачи
