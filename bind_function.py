@@ -134,4 +134,4 @@ def send_message(chat_id, text):
         'chat_id': chat_id,
         'text': text
     }
-    response = r
+response = r.json()  # Или просто возвращайте r, если не нужен JSON
