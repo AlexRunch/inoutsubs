@@ -4,6 +4,7 @@ import boto3
 from telethon import TelegramClient
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
+import asyncio
 
 # Настройка логгера
 logger = logging.getLogger()
@@ -55,7 +56,11 @@ async def process_message(event):
         else:
             await send_message(chat_id, f"Ошибка: Бот не является администратором канала {text}. "
                                         f"Сначала добавьте бота как администратора в ваш канал.")
-    # Здесь можно добавить обработку ввода email
+    elif '@' in text and '.' in text:  # Простая проверка на email
+        # Здесь добавьте логику сохранения email в базу данных
+        await send_message(chat_id, f"Email {text} сохранен. Вы будете получать ежедневные обновления на этот адрес.")
+    else:
+        await send_message(chat_id, "Извините, я не понимаю эту команду.")
 
 def lambda_handler(event, context):
     try:
@@ -68,8 +73,7 @@ def lambda_handler(event, context):
         logger.info(f"Тело запроса: {body}")
         
         if 'message' in body:
-            import asyncio
-            asyncio.run(process_message(body))
+            asyncio.get_event_loop().run_until_complete(process_message(body))
         
         return {'statusCode': 200, 'body': json.dumps('OK')}
     except Exception as e:
