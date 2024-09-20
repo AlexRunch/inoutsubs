@@ -93,7 +93,7 @@ async def process_channel_connection(client, chat_id, user_id, channel_name):
         send_message(chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
                               f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
 
-async def lambda_handler(event, context):
+async def async_lambda_handler(event, context):
     chat_id = None
     
     try:
@@ -134,9 +134,9 @@ async def lambda_handler(event, context):
             send_message(chat_id, f"Произошла ошибка: {str(e)}")
         return {'statusCode': 400, 'body': json.dumps(f'Произошла ошибка: {str(e)}')}
 
-def lambda_handler_wrapper(event, context):
+def lambda_handler(event, context):
     loop = asyncio.get_event_loop()
-    return loop.run_until_complete(lambda_handler(event, context))
+    return loop.run_until_complete(async_lambda_handler(event, context))
 
 # Объяснение исправленных ошибок:
 # 1. Использование констант вместо глобальных переменных для конфигурации (API_ID, API_HASH и т.д.)
@@ -147,4 +147,4 @@ def lambda_handler_wrapper(event, context):
 # 6. Добавлена проверка ответа от Telegram API в функции send_message
 # 7. Улучшена обработка ошибок во всех функциях
 # 8. Оптимизирована структура кода для лучшей читаемости и поддержки
-# 9. Добавлено использование json.dumps() для сериализации возвращаемых значений
+# 9. Изменена структура для корректной обработки асинхронных функций в AWS Lambda
