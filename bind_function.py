@@ -11,7 +11,7 @@ bot_token = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
 # Конфигурация S3 и DynamoDB
 s3_client = boto3.client('s3')
-bucket_name = 'telegram-bot-subscribers'  # Ваш S3 bucket
+bucket_name = 'telegram-bot-subscribers'  # Имя вашего бакета
 session_file_key = 'telegram_session'  # Имя файла для хранения сессии
 
 dynamodb = boto3.resource('dynamodb', region_name='eu-north-1')
