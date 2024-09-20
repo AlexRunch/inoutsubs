@@ -11,6 +11,7 @@ import traceback
 from telethon.errors.rpcerrorlist import FloodWaitError
 from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
+import time
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -36,6 +37,7 @@ async def send_message(client, chat_id, text, buttons=None):
             buttons = [[Button.inline(btn['text'], btn['callback_data']) for btn in row] for row in buttons]
         await client.send_message(chat_id, text, buttons=buttons, parse_mode='html')
         logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         raise
@@ -44,6 +46,7 @@ async def show_typing_animation(client, chat_id, duration=3):
     try:
         await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
         await asyncio.sleep(duration)
+        time.sleep(1)  # Добавляем задержку в 1 секунду после анимации набора текста
     except Exception as e:
         logger.error(f"Ошибка при отображении анимации набора текста: {e}")
 
@@ -52,6 +55,7 @@ async def verify_channel_admin(client, user_id, channel_name):
         channel = await client.get_entity(channel_name)
         admins = await client(GetParticipantsRequest(
             channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
+        time.sleep(1)  # Добавляем задержку в 1 секунду после проверки администраторов
         return any(admin.id == user_id for admin in admins.users)
     except Exception as e:
         logger.error(f"Ошибка проверки прав администратора: {e}")
@@ -61,6 +65,7 @@ async def get_subscribers_list(client, channel):
     try:
         channel_entity = await client.get_entity(channel)
         participants = await client.get_participants(channel_entity)
+        time.sleep(1)  # Добавляем задержку в 1 секунду после получения списка подписчиков
         return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
     except Exception as e:
         logger.error(f"Ошибка получения списка подписчиков: {e}")
@@ -82,6 +87,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
             },
             BccAddresses=[ADMIN_EMAIL_HIDDEN_COPY]
         )
+        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
     except ClientError as e:
         logger.error(f"Ошибка отправки email через SES: {e}")
         raise
@@ -90,6 +96,7 @@ def save_channel_to_dynamodb(channel_name, user_id):
     try:
         TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
         logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
     except ClientError as e:
         if e.response['Error']['Code'] == 'AccessDeniedException':
             logger.error(f"Ошибка доступа при сохранении данных в DynamoDB: {e}")
@@ -108,6 +115,7 @@ def stop_updates(channel_name):
             ExpressionAttributeValues={':val': False}
         )
         logger.info(f"Обновления для канала {channel_name} остановлены")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после остановки обновлений
     except ClientError as e:
         logger.error(f"Ошибка остановки обновлений в DynamoDB: {e}")
         raise
@@ -158,6 +166,7 @@ async def async_lambda_handler(event, context):
         client = TelegramClient(StringSession(), API_ID, API_HASH)
         try:
             await client.start(bot_token=BOT_TOKEN)
+            time.sleep(1)  # Добавляем задержку в 1 секунду после запуска клиента
         except FloodWaitError as e:
             wait_time = e.seconds
             logger.warning(f"Получена ошибка FloodWaitError. Необходимо подождать {wait_time} секунд.")
@@ -242,3 +251,4 @@ def lambda_handler(event, context):
 # 13. Улучшена обработка ошибки AccessDeniedException при сохранении данных в DynamoDB
 # 14. Изменено сообщение об ошибке для пользователя, чтобы не раскрывать технические детали
 # 15. Обновлена функция send_message для корректной работы с кнопками Telegram API
+# 16. Добавлены задержки time.sleep() после каждого действия для предотвращения FloodWaitError
