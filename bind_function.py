@@ -161,6 +161,11 @@ async def async_lambda_handler(event, context):
 
         return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
+    except EOFError as e:
+        logger.error(f"Произошла ошибка EOF: {e}")
+        if chat_id:
+            send_message(chat_id, "Произошла ошибка при обработке запроса. Пожалуйста, попробуйте еще раз.")
+        return {'statusCode': 400, 'body': json.dumps('Произошла ошибка EOF при чтении данных')}
     except Exception as e:
         logger.error(f"Произошла ошибка: {e}")
         if chat_id:
@@ -177,3 +182,4 @@ def lambda_handler(event, context):
 # 3. Добавлено больше логирования для отслеживания процесса выполнения
 # 4. Оптимизирована структура кода для более эффективной обработки различных типов событий
 # 5. Добавлена кнопка "Стоп" и обработка команды остановки обновлений
+# 6. Добавлена специальная обработка ошибки EOFError
