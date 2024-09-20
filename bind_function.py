@@ -22,12 +22,20 @@ s3_client = boto3.client('s3')
 bucket_name = 'telegram-bot-subscribers'
 
 def lambda_handler(event, context):
-    print(f"Received event: {json.dumps(event)}")
+    chat_id = None  # Инициализация переменной chat_id
     try:
-        chat_id = event['message']['chat']['id']
-        user_id = event['message']['from']['id']
-        text = event['message']['text']
+        print(f"Received event: {json.dumps(event)}")
+        
+        # Получаем chat_id и user_id
+        message = event.get('message', {})
+        chat_id = message.get('chat', {}).get('id', None)
+        user_id = message.get('from', {}).get('id', None)
+        text = message.get('text', '')
+
         print(f"Chat ID: {chat_id}, User ID: {user_id}, Text: {text}")
+
+        if chat_id is None or user_id is None:
+            raise ValueError("Отсутствуют данные chat_id или user_id")
 
         # Загрузка сессии из S3
         session = load_session_from_s3(str(user_id))
@@ -50,7 +58,8 @@ def lambda_handler(event, context):
             send_message(chat_id, f'Ошибка: {error_message}')
     except Exception as e:
         print(f"Ошибка: {str(e)}")
-        send_message(chat_id, f'Произошла ошибка: {str(e)}')
+        if chat_id is not None:
+            send_message(chat_id, f'Произошла ошибка: {str(e)}')
 
 async def verify_channel_admin(client, user_id, channel_name):
     try:
