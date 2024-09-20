@@ -8,7 +8,7 @@ from botocore.exceptions import ClientError
 from telethon.sessions import StringSession
 import asyncio
 import traceback
-from telethon.errors.rpcerrorlist import FloodWaitError
+from telethon.errors.rpcerrorlist import FloodWaitError, ChannelInvalidError
 from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
 import time
@@ -18,14 +18,9 @@ API_ID = 24502638
 API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
 BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
-# Конфигурация S3 и DynamoDB
-S3_CLIENT = boto3.client('s3')
+# Конфигурация DynamoDB
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers')
-
-# Конфигурация SES
-SES_CLIENT = boto3.client('ses', region_name='eu-north-1')
-ADMIN_EMAIL_HIDDEN_COPY = 'mihailov.org@gmail.com'
 
 # Настройка логгера
 logger = logging.getLogger()
@@ -37,7 +32,7 @@ async def send_message(client, chat_id, text, buttons=None):
             buttons = [[Button.inline(btn['text'], btn['callback_data']) for btn in row] for row in buttons]
         await client.send_message(chat_id, text, buttons=buttons, parse_mode='html')
         logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
-        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
+        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
     except Exception as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
         raise
@@ -46,112 +41,39 @@ async def show_typing_animation(client, chat_id, duration=3):
     try:
         await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
         await asyncio.sleep(duration)
-        time.sleep(1)  # Добавляем задержку в 1 секунду после анимации набора текста
     except Exception as e:
         logger.error(f"Ошибка при отображении анимации набора текста: {e}")
 
-async def verify_channel_admin(client, user_id, channel_name):
+async def verify_bot_admin(client, channel_name):
     try:
-        channel = await client.get_entity(channel_name)
+        channel = await client.get_input_entity(channel_name)
+        bot_user = await client.get_me()
         admins = await client(GetParticipantsRequest(
             channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
-        time.sleep(1)  # Добавляем задержку в 1 секунду после проверки администраторов
-        return any(admin.id == user_id for admin in admins.users)
+        return any(admin.id == bot_user.id for admin in admins.users)
+    except ChannelInvalidError:
+        logger.error(f"Неверный канал: {channel_name}")
+        return False
     except Exception as e:
-        logger.error(f"Ошибка проверки прав администратора: {e}")
-        raise
+        logger.error(f"Ошибка проверки прав администратора бота: {e}")
+        return False
 
-async def get_subscribers_list(client, channel):
-    try:
-        channel_entity = await client.get_entity(channel)
-        participants = await client.get_participants(channel_entity)
-        time.sleep(1)  # Добавляем задержку в 1 секунду после получения списка подписчиков
-        return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
-    except Exception as e:
-        logger.error(f"Ошибка получения списка подписчиков: {e}")
-        raise
-
-def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
-    email_subject = f'Подключение канала {channel_name}'
-    email_body = (f'Канал {channel_name} успешно подключен.\n'
-                  f'Количество подписчиков: {subscriber_count}\n'
-                  f'Список подписчиков:\n{subscriber_list}')
-    
-    try:
-        SES_CLIENT.send_email(
-            Source='mihailov.org@gmail.com',
-            Destination={'ToAddresses': [admin_email]},
-            Message={
-                'Subject': {'Data': email_subject},
-                'Body': {'Text': {'Data': email_body}}
-            },
-            BccAddresses=[ADMIN_EMAIL_HIDDEN_COPY]
-        )
-        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
-    except ClientError as e:
-        logger.error(f"Ошибка отправки email через SES: {e}")
-        raise
-
-def save_channel_to_dynamodb(channel_name, user_id):
-    try:
-        TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
-        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
-        time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
-    except ClientError as e:
-        if e.response['Error']['Code'] == 'AccessDeniedException':
-            logger.error(f"Ошибка доступа при сохранении данных в DynamoDB: {e}")
-            logger.error("Проверьте настройки IAM роли для Lambda функции")
-            logger.error(f"Текущая роль: {boto3.client('sts').get_caller_identity().get('Arn')}")
-            logger.error(f"Необходимые разрешения: dynamodb:PutItem для ресурса {TABLE.table_arn}")
-        else:
-            logger.error(f"Ошибка сохранения данных в DynamoDB: {e}")
-        raise
-
-def stop_updates(channel_name):
-    try:
-        TABLE.update_item(
-            Key={'channel_id': channel_name},
-            UpdateExpression="SET send_updates = :val",
-            ExpressionAttributeValues={':val': False}
-        )
-        logger.info(f"Обновления для канала {channel_name} остановлены")
-        time.sleep(1)  # Добавляем задержку в 1 секунду после остановки обновлений
-    except ClientError as e:
-        logger.error(f"Ошибка остановки обновлений в DynamoDB: {e}")
-        raise
-
-async def process_channel_connection(client, chat_id, user_id, channel_name):
+async def process_channel_connection(client, chat_id, channel_name):
     try:
         await show_typing_animation(client, chat_id)
-        is_admin = await verify_channel_admin(client, user_id, channel_name)
+        is_admin = await verify_bot_admin(client, channel_name)
         if is_admin:
-            await send_message(client, chat_id, f"Вы являетесь администратором канала {channel_name}. Канал будет подключен.")
-            
-            await show_typing_animation(client, chat_id)
-            subscribers = await get_subscribers_list(client, channel_name)
-            subscriber_count = len(subscribers)
-            subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
-
-            try:
-                save_channel_to_dynamodb(channel_name, user_id)
-                send_email(channel_name, 'admin@example.com', subscriber_count, subscriber_list)
-                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен и сохранен.")
-            except ClientError as e:
-                if e.response['Error']['Code'] == 'AccessDeniedException':
-                    await send_message(client, chat_id, "Произошла ошибка при сохранении данных. Пожалуйста, обратитесь к администратору.")
-                    logger.error(f"Ошибка доступа при сохранении данных: {e}")
-                else:
-                    raise
+            # Здесь можно добавить логику сохранения канала в базу данных
+            await send_message(client, chat_id, f"Канал {channel_name} успешно подключен.")
         else:
-            await send_message(client, chat_id, f"Ошибка: Вы не являетесь администратором канала {channel_name}. "
-                                  f"Убедитесь, что бот добавлен в канал и что у вас есть права администратора.")
+            await send_message(client, chat_id, f"Ошибка: Бот не является администратором канала {channel_name}. "
+                                  f"Сперва подключите бота к своему каналу в качестве администратора.")
     except Exception as e:
-        error_message = f"Ошибка при подключении канала: {str(e)}\n{traceback.format_exc()}"
+        error_message = f"Ошибка при подключении канала: {str(e)}"
         logger.error(error_message)
         await send_message(client, chat_id, f"Произошла ошибка при подключении канала: {str(e)}")
-        raise
 
-async def async_lambda_handler(event, context):
+async def lambda_handler(event, context):
     chat_id = None
     client = None
     
@@ -166,7 +88,7 @@ async def async_lambda_handler(event, context):
         client = TelegramClient(StringSession(), API_ID, API_HASH)
         try:
             await client.start(bot_token=BOT_TOKEN)
-            time.sleep(1)  # Добавляем задержку в 1 секунду после запуска клиента
+            await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после запуска клиента
         except FloodWaitError as e:
             wait_time = e.seconds
             logger.warning(f"Получена ошибка FloodWaitError. Необходимо подождать {wait_time} секунд.")
@@ -181,43 +103,31 @@ async def async_lambda_handler(event, context):
         if 'message' in body:
             message = body['message']
             chat_id = message['chat']['id']
-            user_id = message['from']['id']
             text = message.get('text', '')
 
             if text == '/start':
                 await show_typing_animation(client, chat_id)
-                instructions = ("Привет! Я помогу вам подключить канал для получения статистики.\n"
-                                "Чтобы начать, нажмите кнопку 'Проверить канал' и введите название вашего канала.")
-                buttons = [
-                    [{'text': 'Проверить канал', 'callback_data': 'check_channel'}],
-                    [{'text': 'Стоп', 'callback_data': 'stop_updates'}]
-                ]
-                await send_message(client, chat_id, instructions, buttons)
-                return {'statusCode': 200, 'body': json.dumps('Инструкции отправлены')}
+                welcome_message = ("Привет! Я бот для подключения вашего канала и получения статистики.\n\n"
+                                   "Чтобы подключить канал, выполните следующие шаги:\n"
+                                   "1. Добавьте меня в качестве администратора в ваш канал\n"
+                                   "2. Нажмите кнопку 'Проверить подключение' ниже\n"
+                                   "3. Введите @username вашего канала")
+                buttons = [[{'text': 'Проверить подключение', 'callback_data': 'check_connection'}]]
+                await send_message(client, chat_id, welcome_message, buttons)
+                return {'statusCode': 200, 'body': json.dumps('Приветственное сообщение отправлено')}
 
             if text and text.startswith('@'):
-                await process_channel_connection(client, chat_id, user_id, text)
+                await process_channel_connection(client, chat_id, text)
                 return {'statusCode': 200, 'body': json.dumps('Обработка подключения канала завершена')}
 
         elif 'callback_query' in body:
             callback_query = body['callback_query']
             chat_id = callback_query['message']['chat']['id']
             callback_data = callback_query['data']
-            if callback_data == 'check_channel':
+            if callback_data == 'check_connection':
                 await show_typing_animation(client, chat_id)
-                await send_message(client, chat_id, "Введите название канала для проверки.")
+                await send_message(client, chat_id, "Введите @username вашего канала для проверки подключения.")
                 return {'statusCode': 200, 'body': json.dumps('Запрошено название канала')}
-            elif callback_data == 'stop_updates':
-                await show_typing_animation(client, chat_id)
-                # Здесь нужно добавить логику для определения канала пользователя
-                # Предположим, что у нас есть функция get_user_channel(user_id)
-                channel_name = get_user_channel(callback_query['from']['id'])
-                if channel_name:
-                    stop_updates(channel_name)
-                    await send_message(client, chat_id, f"Обновления для канала {channel_name} остановлены.")
-                else:
-                    await send_message(client, chat_id, "У вас нет подключенных каналов.")
-                return {'statusCode': 200, 'body': json.dumps('Обработан запрос на остановку обновлений')}
 
         return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
@@ -231,24 +141,5 @@ async def async_lambda_handler(event, context):
         if client:
             await client.disconnect()
 
-def lambda_handler(event, context):
-    loop = asyncio.get_event_loop()
-    return loop.run_until_complete(async_lambda_handler(event, context))
-
-# Обновления:
-# 1. Использование асинхронных методов Telethon для отправки сообщений и работы с каналами
-# 2. Обновлена функция verify_channel_admin с использованием GetParticipantsRequest
-# 3. Изменена структура async_lambda_handler для использования одного экземпляра TelegramClient
-# 4. Обновлены вызовы функций для работы с асинхронными методами
-# 5. Улучшена обработка ошибок и логирование
-# 6. Добавлена поддержка inline кнопок в соответствии с API Telegram
-# 7. Исправлена ошибка EOF при создании клиента Telegram
-# 8. Исправлена ошибка с использованием ChatAction.GetParticipantsRequest
-# 9. Добавлено дополнительное логирование в функцию save_channel_to_dynamodb для отслеживания ошибок доступа
-# 10. Добавлена обработка FloodWaitError при запуске клиента Telegram
-# 11. Добавлена функция show_typing_animation для отображения анимации набора текста
-# 12. Добавлены вызовы show_typing_animation перед отправкой сообщений для улучшения пользовательского опыта
-# 13. Улучшена обработка ошибки AccessDeniedException при сохранении данных в DynamoDB
-# 14. Изменено сообщение об ошибке для пользователя, чтобы не раскрывать технические детали
-# 15. Обновлена функция send_message для корректной работы с кнопками Telegram API
-# 16. Добавлены задержки time.sleep() после каждого действия для предотвращения FloodWaitError
+def lambda_handler_wrapper(event, context):
+    return asyncio.get_event_loop().run_until_complete(lambda_handler(event, context))
