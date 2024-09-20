@@ -95,6 +95,8 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
 
 # Основная функция Lambda
 def lambda_handler(event, context):
+    chat_id = None  # Инициализируем переменную заранее
+    
     try:
         # Проверка на наличие данных
         if 'body' not in event:
@@ -102,7 +104,7 @@ def lambda_handler(event, context):
         
         body = json.loads(event['body'])
         message = body['message']
-        chat_id = message['chat']['id']
+        chat_id = message['chat']['id']  # Назначаем значение переменной chat_id
         user_id = message['from']['id']
         text = message.get('text', '')
 
@@ -149,7 +151,8 @@ def lambda_handler(event, context):
 
     except Exception as e:
         logging.error(f"Произошла ошибка: {e}")
-        send_message(chat_id, f"Произошла ошибка: {str(e)}")
+        if chat_id:
+            send_message(chat_id, f"Произошла ошибка: {str(e)}")
         return {'statusCode': 400, 'body': f'Произошла ошибка: {str(e)}'}
 
 
