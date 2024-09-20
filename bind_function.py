@@ -92,11 +92,11 @@ def send_email(subject, body, recipient_email, bcc_email=None):
 # Главная функция для Lambda
 def lambda_handler(event, context):
     try:
-        # Проверка на наличие ключа 'body' в event
+        # Проверяем, есть ли ключ 'body' в событии
         if 'body' not in event:
             print(f"Содержимое event: {event}")
             raise KeyError("'body' не найден в event")
-
+        
         # Обработка входящего сообщения из Webhook
         body = json.loads(event['body'])
         message = body.get('message', {})
