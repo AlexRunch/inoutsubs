@@ -142,4 +142,5 @@ async def lambda_handler(event, context):
             await client.disconnect()
 
 def lambda_handler_wrapper(event, context):
-    return asyncio.get_event_loop().run_until_complete(lambda_handler(event, context))
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(lambda_handler(event, context))
