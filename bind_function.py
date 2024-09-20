@@ -11,7 +11,6 @@ import traceback
 from telethon.errors.rpcerrorlist import FloodWaitError, ChannelInvalidError
 from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
-import time
 
 # Конфигурация Telegram API
 API_ID = 24502638
@@ -79,10 +78,14 @@ async def lambda_handler(event, context):
     
     try:
         logger.info(f"Получено событие: {event}")
-        if 'body' not in event:
-            raise ValueError("'body' не найден в event")
         
-        body = json.loads(event['body'])
+        # Проверяем, есть ли 'body' в event
+        if 'body' in event:
+            body = json.loads(event['body'])
+        else:
+            # Если 'body' отсутствует, используем само событие как body
+            body = event
+        
         logger.info(f"Тело запроса: {body}")
         
         client = TelegramClient(StringSession(), API_ID, API_HASH)
