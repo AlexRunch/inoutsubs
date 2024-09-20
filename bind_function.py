@@ -21,6 +21,19 @@ table = dynamodb.Table('telegram-subscribers')
 ses_client = boto3.client('ses', region_name='eu-north-1')
 admin_email_hidden_copy = 'mihailov.org@gmail.com'
 
+# Функция для отправки сообщений
+def send_message(chat_id, text):
+    url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
+    payload = {
+        'chat_id': chat_id,
+        'text': text
+    }
+    headers = {'Content-Type': 'application/json'}
+    response = requests.post(url, json=payload, headers=headers)
+    if response.status_code != 200:
+        print(f"Ошибка при отправке сообщения: {response.text}")
+    return response.json()
+
 # Функция для загрузки сессии из S3
 def load_session_from_s3():
     try:
@@ -121,5 +134,3 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps(f"Внутренняя ошибка: {str(e)}")
         }
-
-# Остальные функции для работы с админами, подписчиками и отправки сообщений остаются такими же
