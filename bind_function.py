@@ -77,8 +77,13 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
 def save_channel_to_dynamodb(channel_name, user_id):
     try:
         TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
+        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
     except ClientError as e:
-        logger.error(f"Ошибка сохранения данных в DynamoDB: {e}")
+        if e.response['Error']['Code'] == 'AccessDeniedException':
+            logger.error(f"Ошибка доступа при сохранении данных в DynamoDB: {e}")
+            logger.error("Проверьте настройки IAM роли для Lambda функции")
+        else:
+            logger.error(f"Ошибка сохранения данных в DynamoDB: {e}")
         raise
 
 def stop_updates(channel_name):
@@ -191,3 +196,4 @@ def lambda_handler(event, context):
 # 6. Добавлена поддержка inline кнопок в соответствии с API Telegram
 # 7. Исправлена ошибка EOF при создании клиента Telegram
 # 8. Исправлена ошибка с использованием ChatAction.GetParticipantsRequest
+# 9. Добавлено дополнительное логирование в функцию save_channel_to_dynamodb для отслеживания ошибок доступа
