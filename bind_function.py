@@ -1,10 +1,8 @@
 import json
 import boto3
-import os
 import requests
 from telethon import TelegramClient
 from telethon.sessions import StringSession
-from telethon.tl.types import ChannelParticipantsAdmins
 
 # Конфигурация Telegram API
 api_id = 24502638
@@ -13,15 +11,13 @@ bot_token = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
 # Конфигурация S3 и DynamoDB
 s3_client = boto3.client('s3')
-bucket_name = 'telegram-bot-subscribers'  # Используем ваш бакет
-session_file_key = 'telegram_session'  # Название файла для хранения сессии
+bucket_name = 'telegram-bot-subscribers'  # Ваш S3 bucket
+session_file_key = 'telegram_session'  # Имя файла для хранения сессии
 
 dynamodb = boto3.resource('dynamodb', region_name='eu-north-1')
 table = dynamodb.Table('telegram-subscribers')
-ses_client = boto3.client('ses', region_name='eu-north-1')
-admin_email_hidden_copy = 'mihailov.org@gmail.com'
 
-# Функция для отправки сообщений
+# Функция для отправки сообщений через бот
 def send_message(chat_id, text):
     url = f'https://api.telegram.org/bot{bot_token}/sendMessage'
     payload = {
@@ -34,25 +30,56 @@ def send_message(chat_id, text):
         print(f"Ошибка при отправке сообщения: {response.text}")
     return response.json()
 
+# Функция для сохранения сессии Telegram в S3
+def save_session_to_s3(session_string):
+    try:
+        s3_client.put_object(Body=session_string, Bucket=bucket_name, Key=session_file_key)
+        print("Сессия успешно сохранена в S3.")
+    except Exception as e:
+        print(f"Ошибка сохранения сессии в S3: {str(e)}")
+
 # Функция для загрузки сессии из S3
 def load_session_from_s3():
     try:
         response = s3_client.get_object(Bucket=bucket_name, Key=session_file_key)
-        session_str = response['Body'].read().decode('utf-8')
-        return StringSession(session_str)
+        session_data = response['Body'].read().decode('utf-8')
+        print("Сессия успешно загружена из S3.")
+        return session_data
     except Exception as e:
-        print(f"Ошибка загрузки сессии из S3: {e}")
+        print(f"Ошибка загрузки сессии из S3: {str(e)}")
         return None
 
-# Функция для сохранения сессии в S3
-def save_session_to_s3(session_str):
+# Функция для проверки прав администратора в канале
+async def verify_channel_admin(client, user_id, channel_name):
     try:
-        s3_client.put_object(Bucket=bucket_name, Key=session_file_key, Body=session_str)
+        channel_entity = await client.get_entity(channel_name)
+        participants = await client.get_participants(channel_entity, filter=ChannelParticipantsAdmins)
+        for participant in participants:
+            if participant.id == user_id:
+                return True
+        return False
     except Exception as e:
-        print(f"Ошибка сохранения сессии в S3: {e}")
+        print(f"Ошибка проверки прав администратора: {str(e)}")
+        return False
+
+# Функция для добавления информации о канале в DynamoDB
+def add_channel_to_dynamodb(channel_name, admin_email, user_id):
+    try:
+        table.put_item(
+            Item={
+                'channel_id': channel_name,
+                'email': admin_email,
+                'user_id': str(user_id),
+                'subscribers': {}
+            }
+        )
+        print(f"Канал {channel_name} успешно добавлен в DynamoDB.")
+    except Exception as e:
+        print(f"Ошибка добавления канала в DynamoDB: {str(e)}")
 
 def lambda_handler(event, context):
     try:
+        # Логируем все событие для проверки структуры
         print(f"Received event: {json.dumps(event)}")
 
         body = json.loads(event.get('body', '{}'))
@@ -64,6 +91,7 @@ def lambda_handler(event, context):
         print(f"Chat ID: {chat_id}, User ID: {user_id}, Text: {text}")
 
         if not chat_id or not user_id:
+            send_message(chat_id, 'Ошибка: Отсутствуют необходимые данные.')
             return {'statusCode': 400, 'body': 'Ошибка: Отсутствуют необходимые данные.'}
 
         # Обработка команды /start
@@ -71,62 +99,33 @@ def lambda_handler(event, context):
             send_message(chat_id, 'Привет! Мы начинаем проверку. Пожалуйста, отправьте название вашего канала, который вы хотите подключить.')
             return {'statusCode': 200, 'body': 'Команда /start обработана.'}
 
-        # Если пользователь отправил название канала
+        # Проверка данных о канале
         channel_name = text.strip()
-
         if not channel_name:
-            send_message(chat_id, 'Ошибка: Отсутствует название канала. Пожалуйста, отправьте корректное название.')
-            return {'statusCode': 400, 'body': 'Ошибка: Название канала отсутствует.'}
+            send_message(chat_id, 'Ошибка: Пожалуйста, отправьте корректное название канала.')
+            return {'statusCode': 400, 'body': 'Ошибка: Некорректное название канала.'}
 
-        # Загрузка сессии из S3
-        session = load_session_from_s3()
-        if session is None:
-            send_message(chat_id, 'Ошибка: не удалось загрузить сессию Telegram.')
-            return {'statusCode': 500, 'body': 'Ошибка при загрузке сессии Telegram.'}
-
-        # Инициализация Telethon с загруженной сессией
-        try:
-            client = TelegramClient(session, api_id, api_hash).start(bot_token=bot_token)
-        except Exception as e:
-            send_message(chat_id, f'Ошибка: не удалось подключиться к Telegram API. Детали: {e}')
-            return {'statusCode': 500, 'body': f'Ошибка при подключении к Telegram API: {e}'}
-
-        # Проверка прав администратора
-        try:
-            is_admin = client.loop.run_until_complete(verify_channel_admin(client, user_id, channel_name))
-        except Exception as e:
-            send_message(chat_id, f'Ошибка: не могу проверить права администратора. Детали: {e}')
-            return {'statusCode': 500, 'body': f'Ошибка при проверке прав администратора: {e}'}
-
-        if is_admin:
-            add_channel_to_dynamodb(channel_name, chat_id, user_id)
-            try:
-                # Получаем список подписчиков
-                subscribers = client.loop.run_until_complete(get_subscribers_list(client, channel_name))
-            except Exception as e:
-                send_message(chat_id, f'Ошибка: не удалось получить список подписчиков. Детали: {e}')
-                return {'statusCode': 500, 'body': f'Ошибка при получении списка подписчиков: {e}'}
-
-            subscriber_count = len(subscribers)
-            subscriber_list = "\n".join([f'{name} (ID: {user_id})' for user_id, name in subscribers.items()])
-
-            # Отправляем email с информацией о канале и подписчиках
-            email_subject = f'Подключение канала {channel_name}'
-            email_body = f'Канал {channel_name} успешно подключен.\n' \
-                        f'Количество подписчиков: {subscriber_count}\n' \
-                        f'Список подписчиков:\n{subscriber_list}'
-
-            send_email(email_subject, email_body, admin_email_hidden_copy, bcc_email=admin_email_hidden_copy)
-            send_message(chat_id, f'Канал {channel_name} успешно подключен. Подписчиков: {subscriber_count}.')
-
-            # Сохранение обновленной сессии в S3
-            session_str = client.session.save()
-            save_session_to_s3(session_str)
-
-            return {'statusCode': 200, 'body': 'Канал успешно подключен.'}
+        # Инициализация клиента Telegram
+        session_string = load_session_from_s3()
+        if session_string:
+            client = TelegramClient(StringSession(session_string), api_id, api_hash)
         else:
-            send_message(chat_id, 'Ошибка: вы не являетесь администратором канала или бот не имеет доступа к каналу.')
-            return {'statusCode': 403, 'body': 'Пользователь не является администратором канала.'}
+            client = TelegramClient(StringSession(), api_id, api_hash)
+            session_string = client.session.save()
+            save_session_to_s3(session_string)
+
+        client.start(bot_token=bot_token)
+
+        # Проверка, является ли пользователь администратором канала
+        is_admin = client.loop.run_until_complete(verify_channel_admin(client, user_id, channel_name))
+        if is_admin:
+            send_message(chat_id, f'Вы являетесь администратором канала {channel_name}. Канал успешно подключен.')
+            # Сохраняем канал в DynamoDB
+            add_channel_to_dynamodb(channel_name, 'admin_email@example.com', user_id)  # Адрес почты можно получить позже
+        else:
+            send_message(chat_id, 'Ошибка: Вы не являетесь администратором канала.')
+
+        return {'statusCode': 200, 'body': 'Запрос обработан успешно.'}
 
     except Exception as e:
         print(f"Внутренняя ошибка: {str(e)}")
