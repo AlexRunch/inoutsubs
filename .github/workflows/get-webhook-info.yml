@@ -1,0 +1,13 @@
+name: Get Telegram Webhook Info
+
+on:
+  workflow_dispatch: # Позволяет запускать вручную
+
+jobs:
+  get_webhook_info:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Get Webhook Info
+      run: |
+        curl "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/getWebhookInfo"
