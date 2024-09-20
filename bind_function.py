@@ -123,10 +123,16 @@ async def async_lambda_handler(event, context):
     
     try:
         logger.info(f"Получено событие: {event}")
-        if 'body' not in event:
-            raise ValueError("'body' не найден в event")
         
-        body = json.loads(event['body'])
+        # Проверяем, есть ли 'body' в event и является ли оно строкой
+        if 'body' not in event or not isinstance(event['body'], str):
+            raise ValueError("'body' не найден в event или имеет неверный формат")
+        
+        try:
+            body = json.loads(event['body'])
+        except json.JSONDecodeError:
+            raise ValueError("Невозможно декодировать JSON из 'body'")
+        
         logger.info(f"Тело запроса: {body}")
         
         if 'message' in body:
@@ -183,9 +189,7 @@ def lambda_handler(event, context):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(async_lambda_handler(event, context))
 
-# Исправления:
-# 1. Добавлено более подробное логирование ошибок с использованием traceback
-# 2. Улучшена обработка исключений в каждой функции
-# 3. Добавлены более информативные сообщения об ошибках для пользователя
-# 4. Расширено логирование в async_lambda_handler для лучшего отслеживания процесса выполнения
-# 5. Добавлена отправка подробной информации об ошибке в случае неудачи
+# Проблема заключалась в том, что функция ожидала наличие 'body' в event,
+# но это поле отсутствовало. Теперь мы добавили дополнительные проверки
+# и обработку ошибок для случаев, когда 'body' отсутствует или имеет неверный формат.
+# Также добавлена проверка на возможность декодирования JSON из 'body'.
