@@ -63,14 +63,14 @@ async def process_channel_connection(client, chat_id, channel_name):
         is_admin = await verify_bot_admin(client, channel_name)
         if is_admin:
             # Здесь можно добавить логику сохранения канала в базу данных
-            await send_message(client, chat_id, f"Канал {channel_name} успешно подключен.")
+            await send_message(client, chat_id, f"Канал {channel_name} успешно проверен. Теперь, пожалуйста, напишите свою электронную почту.")
         else:
             await send_message(client, chat_id, f"Ошибка: Бот не является администратором канала {channel_name}. "
-                                  f"Сперва подключите бота к своему каналу в качестве администратора.")
+                                  f"Сперва добавьте бота в качестве администратора в ваш канал.")
     except Exception as e:
         error_message = f"Ошибка при подключении канала: {str(e)}"
         logger.error(error_message)
-        await send_message(client, chat_id, f"Произошла ошибка при подключении канала: {str(e)}")
+        await send_message(client, chat_id, f"Произошла ошибка при проверке канала: {str(e)}")
 
 async def lambda_handler(event, context):
     chat_id = None
@@ -110,27 +110,22 @@ async def lambda_handler(event, context):
 
             if text == '/start':
                 await show_typing_animation(client, chat_id)
-                welcome_message = ("Привет! Я бот для подключения вашего канала и получения статистики.\n\n"
+                welcome_message = ("Привет! Я бот для отслеживания изменений по людям которые подписались или отписались от твоего канала.\n"
+                                   "Каждый день тебе на почту будет приходить письмо, содержащее ники людей, которые подписались и отписались от канала за предыдущие сутки.\n\n"
                                    "Чтобы подключить канал, выполните следующие шаги:\n"
                                    "1. Добавьте меня в качестве администратора в ваш канал\n"
-                                   "2. Нажмите кнопку 'Проверить подключение' ниже\n"
-                                   "3. Введите @username вашего канала")
-                buttons = [[{'text': 'Проверить подключение', 'callback_data': 'check_connection'}]]
-                await send_message(client, chat_id, welcome_message, buttons)
+                                   "2. Напишите мне @username вашего канала. Я проверю, имеете ли вы доступ к подобным данным\n"
+                                   "3. В случае успешной проверки, напишите свою электронную почту. На нее сразу после подключения прилетит весь список подписчиков, а потом будут приходить ежедневные обновления.\n\n"
+                                   "Если вы не подключили бота к каналу, вы не сможете пройти проверку, поэтому я не смогу начать свою работу.\n"
+                                   "По всем вопросам, пиши моему создателю @alex_favin")
+                await send_message(client, chat_id, welcome_message)
                 return {'statusCode': 200, 'body': json.dumps('Приветственное сообщение отправлено')}
 
             if text and text.startswith('@'):
                 await process_channel_connection(client, chat_id, text)
                 return {'statusCode': 200, 'body': json.dumps('Обработка подключения канала завершена')}
 
-        elif 'callback_query' in body:
-            callback_query = body['callback_query']
-            chat_id = callback_query['message']['chat']['id']
-            callback_data = callback_query['data']
-            if callback_data == 'check_connection':
-                await show_typing_animation(client, chat_id)
-                await send_message(client, chat_id, "Введите @username вашего канала для проверки подключения.")
-                return {'statusCode': 200, 'body': json.dumps('Запрошено название канала')}
+            # Здесь можно добавить обработку ввода email
 
         return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
