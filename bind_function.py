@@ -113,29 +113,30 @@ async def lambda_handler(event, context):
                 'inline_keyboard': [[{'text': 'Проверить канал', 'callback_data': 'check_channel'}]]
             }
             send_message(chat_id, instructions, buttons=json.dumps(buttons))
-            return {'statusCode': 200, 'body': 'Инструкции отправлены'}
+            return {'statusCode': 200, 'body': json.dumps('Инструкции отправлены')}
 
         if 'callback_query' in body:
             callback_data = body['callback_query']['data']
             if callback_data == 'check_channel':
                 send_message(chat_id, "Введите название канала для проверки.")
-                return {'statusCode': 200, 'body': 'Запрошено название канала'}
+                return {'statusCode': 200, 'body': json.dumps('Запрошено название канала')}
 
         if text and text.startswith('@'):
             async with TelegramClient(StringSession(), API_ID, API_HASH) as client:
                 await client.start(bot_token=BOT_TOKEN)
                 await process_channel_connection(client, chat_id, user_id, text)
 
-        return {'statusCode': 200, 'body': 'Сообщение обработано'}
+        return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
     except Exception as e:
         logger.error(f"Произошла ошибка: {e}")
         if chat_id:
             send_message(chat_id, f"Произошла ошибка: {str(e)}")
-        return {'statusCode': 400, 'body': f'Произошла ошибка: {str(e)}'}
+        return {'statusCode': 400, 'body': json.dumps(f'Произошла ошибка: {str(e)}')}
 
 def lambda_handler_wrapper(event, context):
-    return asyncio.get_event_loop().run_until_complete(lambda_handler(event, context))
+    loop = asyncio.get_event_loop()
+    return loop.run_until_complete(lambda_handler(event, context))
 
 # Объяснение исправленных ошибок:
 # 1. Использование констант вместо глобальных переменных для конфигурации (API_ID, API_HASH и т.д.)
@@ -146,3 +147,4 @@ def lambda_handler_wrapper(event, context):
 # 6. Добавлена проверка ответа от Telegram API в функции send_message
 # 7. Улучшена обработка ошибок во всех функциях
 # 8. Оптимизирована структура кода для лучшей читаемости и поддержки
+# 9. Добавлено использование json.dumps() для сериализации возвращаемых значений
