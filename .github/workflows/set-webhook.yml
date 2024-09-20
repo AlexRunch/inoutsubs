@@ -1,0 +1,13 @@
+name: Set Telegram Webhook
+
+on:
+  workflow_dispatch: # Позволяет вручную запустить этот workflow
+
+jobs:
+  set_webhook:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Set Telegram Webhook
+      run: |
+        curl -F "url=https://l70umad9vg.execute-api.eu-north-1.amazonaws.com/prod/webhook" "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/setWebhook"
