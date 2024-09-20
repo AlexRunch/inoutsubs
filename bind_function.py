@@ -3,6 +3,7 @@ import boto3
 import logging
 from telethon import TelegramClient, events
 from telethon.tl.types import ChannelParticipantsAdmins
+from telethon.tl.functions.channels import GetParticipantsRequest
 from botocore.exceptions import ClientError
 from telethon.sessions import StringSession
 import asyncio
@@ -37,8 +38,8 @@ async def send_message(client, chat_id, text, buttons=None):
 async def verify_channel_admin(client, user_id, channel_name):
     try:
         channel = await client.get_entity(channel_name)
-        admins = await client(events.ChatAction.GetParticipantsRequest(
-            channel, filter=ChannelParticipantsAdmins()))
+        admins = await client(GetParticipantsRequest(
+            channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
         return any(admin.id == user_id for admin in admins.users)
     except Exception as e:
         logger.error(f"Ошибка проверки прав администратора: {e}")
@@ -183,9 +184,10 @@ def lambda_handler(event, context):
 
 # Обновления:
 # 1. Использование асинхронных методов Telethon для отправки сообщений и работы с каналами
-# 2. Обновлена функция verify_channel_admin с использованием events.ChatAction.GetParticipantsRequest
+# 2. Обновлена функция verify_channel_admin с использованием GetParticipantsRequest
 # 3. Изменена структура async_lambda_handler для использования одного экземпляра TelegramClient
 # 4. Обновлены вызовы функций для работы с асинхронными методами
 # 5. Улучшена обработка ошибок и логирование
 # 6. Добавлена поддержка inline кнопок в соответствии с API Telegram
 # 7. Исправлена ошибка EOF при создании клиента Telegram
+# 8. Исправлена ошибка с использованием ChatAction.GetParticipantsRequest
