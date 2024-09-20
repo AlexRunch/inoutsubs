@@ -29,9 +29,12 @@ logger.setLevel(logging.INFO)
 def send_message(chat_id, text, buttons=None):
     try:
         url = f'https://api.telegram.org/bot{BOT_TOKEN}/sendMessage'
-        data = {'chat_id': chat_id, 'text': text, 'reply_markup': buttons}
+        data = {'chat_id': chat_id, 'text': text, 'parse_mode': 'HTML'}
+        if buttons:
+            data['reply_markup'] = buttons
         response = requests.post(url, json=data)
         response.raise_for_status()
+        logger.info(f"Сообщение отправлено успешно: {response.json()}")
     except requests.RequestException as e:
         logger.error(f"Ошибка отправки сообщения: {e}")
 
@@ -97,34 +100,40 @@ async def async_lambda_handler(event, context):
     chat_id = None
     
     try:
+        logger.info(f"Получено событие: {event}")
         if 'body' not in event:
             raise ValueError("'body' не найден в event")
         
         body = json.loads(event['body'])
-        message = body['message']
-        chat_id = message['chat']['id']
-        user_id = message['from']['id']
-        text = message.get('text', '')
+        logger.info(f"Тело запроса: {body}")
+        
+        if 'message' in body:
+            message = body['message']
+            chat_id = message['chat']['id']
+            user_id = message['from']['id']
+            text = message.get('text', '')
 
-        if text == '/start':
-            instructions = ("Привет! Я помогу вам подключить канал для получения статистики.\n"
-                            "Чтобы начать, нажмите кнопку 'Проверить канал' и введите название вашего канала.")
-            buttons = {
-                'inline_keyboard': [[{'text': 'Проверить канал', 'callback_data': 'check_channel'}]]
-            }
-            send_message(chat_id, instructions, buttons=json.dumps(buttons))
-            return {'statusCode': 200, 'body': json.dumps('Инструкции отправлены')}
+            if text == '/start':
+                instructions = ("Привет! Я помогу вам подключить канал для получения статистики.\n"
+                                "Чтобы начать, нажмите кнопку 'Проверить канал' и введите название вашего канала.")
+                buttons = {
+                    'inline_keyboard': [[{'text': 'Проверить канал', 'callback_data': 'check_channel'}]]
+                }
+                send_message(chat_id, instructions, json.dumps(buttons))
+                return {'statusCode': 200, 'body': json.dumps('Инструкции отправлены')}
 
-        if 'callback_query' in body:
-            callback_data = body['callback_query']['data']
+            if text and text.startswith('@'):
+                async with TelegramClient(StringSession(), API_ID, API_HASH) as client:
+                    await client.start(bot_token=BOT_TOKEN)
+                    await process_channel_connection(client, chat_id, user_id, text)
+
+        elif 'callback_query' in body:
+            callback_query = body['callback_query']
+            chat_id = callback_query['message']['chat']['id']
+            callback_data = callback_query['data']
             if callback_data == 'check_channel':
                 send_message(chat_id, "Введите название канала для проверки.")
                 return {'statusCode': 200, 'body': json.dumps('Запрошено название канала')}
-
-        if text and text.startswith('@'):
-            async with TelegramClient(StringSession(), API_ID, API_HASH) as client:
-                await client.start(bot_token=BOT_TOKEN)
-                await process_channel_connection(client, chat_id, user_id, text)
 
         return {'statusCode': 200, 'body': json.dumps('Сообщение обработано')}
 
@@ -138,13 +147,9 @@ def lambda_handler(event, context):
     loop = asyncio.get_event_loop()
     return loop.run_until_complete(async_lambda_handler(event, context))
 
-# Объяснение исправленных ошибок:
-# 1. Использование констант вместо глобальных переменных для конфигурации (API_ID, API_HASH и т.д.)
-# 2. Добавлен логгер для более эффективного логирования
-# 3. Обработка исключений в функции send_message для повышения надежности
-# 4. Использование StringSession вместо файловой сессии для работы в среде Lambda
-# 5. Асинхронный запуск клиента Telethon в lambda_handler
-# 6. Добавлена проверка ответа от Telegram API в функции send_message
-# 7. Улучшена обработка ошибок во всех функциях
-# 8. Оптимизирована структура кода для лучшей читаемости и поддержки
-# 9. Изменена структура для корректной обработки асинхронных функций в AWS Lambda
+# Объяснение внесенных изменений:
+# 1. Добавлено больше логирования для отслеживания входящих событий и обработки сообщений
+# 2. Изменена структура обработки событий для учета как обычных сообщений, так и callback-запросов
+# 3. Добавлен параметр parse_mode: 'HTML' в функцию send_message для поддержки форматирования текста
+# 4. Улучшена обработка ошибок и логирование в функции send_message
+# 5. Оптимизирована структура async_lambda_handler для более четкого разделения логики обработки различных типов событий
