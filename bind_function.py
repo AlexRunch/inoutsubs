@@ -58,8 +58,9 @@ async def initialize_client():
 async def send_message(client, chat_id, text, buttons=None):
     try:
         if buttons:
-            buttons = [[Button.inline(btn['text'], btn['callback_data']) for btn in row] for row in buttons]
-        await client.send_message(chat_id, text, buttons=buttons, parse_mode='html')
+            await client.send_message(chat_id, text, buttons=buttons)
+        else:
+            await client.send_message(chat_id, text)
         logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
         await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
     except Exception as e:
@@ -122,6 +123,37 @@ def save_channel_to_dynamodb(channel_name, user_id):
         logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
         raise
 
+async def process_message(client, chat_id, text, user_id):
+    if text == '/start':
+        welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
+                           "Чтобы подключить канал, выполните следующие шаги:\n"
+                           "1. Добавьте меня в качестве администратора в ваш канал\n"
+                           "2. Напишите мне @username вашего канала\n"
+                           "3. После успешной проверки, напишите свою электронную почту\n\n"
+                           "По всем вопросам обращайтесь к @alex_favin")
+        await send_message(client, chat_id, welcome_message)
+    elif text.startswith('@'):
+        # Проверка канала
+        channel_name = text
+        is_admin = await verify_channel_admin(client, user_id, channel_name)
+        if is_admin:
+            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+            save_channel_to_dynamodb(channel_name, user_id)
+        else:
+            await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
+    elif '@' in text and '.' in text:  # Простая проверка на email
+        # Обработка email
+        email = text
+        channel_name = get_channel_from_dynamodb(user_id)
+        if channel_name:
+            subscribers = await get_subscribers_list(client, channel_name)
+            send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+            await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+        else:
+            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
+    else:
+        await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
+
 async def main(event):
     logger.info("Начало обработки события")
     logger.info(f"Получено событие: {event}")
@@ -140,39 +172,26 @@ async def main(event):
             elif 'message' in event:
                 body = event
             else:
-                logger.error(f"Неизвестный формат события. Ключи: {event.keys()}")
+                logger.warning(f"Неожиданный формат события. Ключи: {event.keys()}")
+                logger.info(f"Содержимое события: {event}")
                 return
         else:
             logger.error(f"Событие не является словарем. Тип: {type(event)}")
             return
 
         if 'message' not in body:
-            logger.error(f"В теле события отсутствует ключ 'message'. Ключи body: {body.keys()}")
+            logger.warning(f"В теле события отсутствует ключ 'message'. Ключи body: {body.keys()}")
+            logger.info(f"Содержимое body: {body}")
             return
 
         message = body['message']
         chat_id = message['chat']['id']
+        user_id = message['from']['id']
         text = message.get('text', '')
 
-        logger.info(f"Обработка сообщения: chat_id={chat_id}, text={text}")
+        logger.info(f"Обработка сообщения: chat_id={chat_id}, user_id={user_id}, text={text}")
 
-        if text == '/start':
-            await send_message(client, chat_id, "Привет! Я бот для управления подписчиками.")
-        elif text.startswith('/bind'):
-            channel_name = text.split(' ', 1)[1] if len(text.split(' ')) > 1 else None
-            if channel_name:
-                is_admin = await verify_channel_admin(client, chat_id, channel_name)
-                if is_admin:
-                    subscribers = await get_subscribers_list(client, channel_name)
-                    save_channel_to_dynamodb(channel_name, chat_id)
-                    send_email(channel_name, 'admin@example.com', len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
-                    await send_message(client, chat_id, f"Канал {channel_name} успешно привязан!")
-                else:
-                    await send_message(client, chat_id, "Вы не являетесь администратором этого канала.")
-            else:
-                await send_message(client, chat_id, "Пожалуйста, укажите имя канала после команды /bind.")
-        else:
-            await send_message(client, chat_id, "Неизвестная команда. Попробуйте /start или /bind @channel_name")
+        await process_message(client, chat_id, text, user_id)
 
     except Exception as e:
         logger.error(f"Ошибка при обработке события: {str(e)}")
@@ -193,3 +212,11 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': str(e)})
         }
     return {'statusCode': 200, 'body': json.dumps('OK')}
+
+def get_channel_from_dynamodb(user_id):
+    try:
+        response = TABLE.get_item(Key={'user_id': str(user_id)})
+        return response.get('Item', {}).get('channel_id')
+    except Exception as e:
+        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
+        return None
