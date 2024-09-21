@@ -132,23 +132,29 @@ async def main(event):
         # Извлечение данных из события
         if isinstance(event, dict):
             if 'body' in event:
-                body = json.loads(event['body'])
+                try:
+                    body = json.loads(event['body'])
+                except json.JSONDecodeError:
+                    logger.error(f"Невозможно декодировать JSON из body: {event['body']}")
+                    return
             elif 'message' in event:
                 body = event
             else:
-                logger.error("Неизвестный формат события")
+                logger.error(f"Неизвестный формат события. Ключи: {event.keys()}")
                 return
         else:
-            logger.error("Событие не является словарем")
+            logger.error(f"Событие не является словарем. Тип: {type(event)}")
             return
 
         if 'message' not in body:
-            logger.error("В теле события отсутствует ключ 'message'")
+            logger.error(f"В теле события отсутствует ключ 'message'. Ключи body: {body.keys()}")
             return
 
         message = body['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
+
+        logger.info(f"Обработка сообщения: chat_id={chat_id}, text={text}")
 
         if text == '/start':
             await send_message(client, chat_id, "Привет! Я бот для управления подписчиками.")
@@ -178,5 +184,12 @@ async def main(event):
 def lambda_handler(event, context):
     logger.info(f"Получено событие Lambda: {event}")
     loop = asyncio.get_event_loop()
-    loop.run_until_complete(main(event))
+    try:
+        loop.run_until_complete(main(event))
+    except Exception as e:
+        logger.error(f"Ошибка в lambda_handler: {str(e)}")
+        return {
+            'statusCode': 500,
+            'body': json.dumps({'error': str(e)})
+        }
     return {'statusCode': 200, 'body': json.dumps('OK')}
