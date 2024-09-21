@@ -70,7 +70,6 @@ async def show_typing_animation(client, chat_id, duration=3):
     try:
         await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
         await asyncio.sleep(duration)
-        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после анимации набора текста
     except Exception as e:
         logger.error(f"Ошибка при отображении анимации набора текста: {e}")
 
@@ -79,7 +78,6 @@ async def verify_channel_admin(client, user_id, channel_name):
         channel = await client.get_entity(channel_name)
         admins = await client(GetParticipantsRequest(
             channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
-        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после проверки администраторов
         return any(admin.id == user_id for admin in admins.users)
     except Exception as e:
         logger.error(f"Ошибка проверки прав администратора: {e}")
@@ -89,7 +87,6 @@ async def get_subscribers_list(client, channel):
     try:
         channel_entity = await client.get_entity(channel)
         participants = await client.get_participants(channel_entity)
-        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после получения списка подписчиков
         return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
     except Exception as e:
         logger.error(f"Ошибка получения списка подписчиков: {e}")
@@ -127,12 +124,28 @@ def save_channel_to_dynamodb(channel_name, user_id):
 
 async def main(event):
     logger.info("Начало обработки события")
+    logger.info(f"Получено событие: {event}")
     try:
         client = await initialize_client()
         logger.info("Успешное подключение к Telegram API")
         
         # Извлечение данных из события
-        body = json.loads(event['body'])
+        if isinstance(event, dict):
+            if 'body' in event:
+                body = json.loads(event['body'])
+            elif 'message' in event:
+                body = event
+            else:
+                logger.error("Неизвестный формат события")
+                return
+        else:
+            logger.error("Событие не является словарем")
+            return
+
+        if 'message' not in body:
+            logger.error("В теле события отсутствует ключ 'message'")
+            return
+
         message = body['message']
         chat_id = message['chat']['id']
         text = message.get('text', '')
@@ -163,6 +176,7 @@ async def main(event):
             await client.disconnect()
 
 def lambda_handler(event, context):
+    logger.info(f"Получено событие Lambda: {event}")
     loop = asyncio.get_event_loop()
     loop.run_until_complete(main(event))
     return {'statusCode': 200, 'body': json.dumps('OK')}
