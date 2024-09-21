@@ -1,178 +1,168 @@
 import json
 import logging
 import boto3
-import requests
 import time
-from telethon import TelegramClient
-from telethon.sessions import MemorySession
+import os
 import asyncio
+from telethon import TelegramClient, events, Button
+from telethon.tl.types import ChannelParticipantsAdmins
+from telethon.tl.functions.channels import GetParticipantsRequest
+from telethon.errors import FloodWaitError, SessionPasswordNeededError
+from botocore.exceptions import ClientError
+from telethon.tl.functions.messages import SetTypingRequest
+from telethon.tl.types import SendMessageTypingAction
 
 # Настройка логгера
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Конфигурация Telegram API
 API_ID = 24502638
 API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
 BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
-TELEGRAM_API_URL = f'https://api.telegram.org/bot{BOT_TOKEN}/'
 
-# Конфигурация DynamoDB
+# Конфигурация S3 и DynamoDB
+S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers')
 
 # Конфигурация SES
 SES_CLIENT = boto3.client('ses', region_name='eu-north-1')
+ADMIN_EMAIL_HIDDEN_COPY = 'mihailov.org@gmail.com'
 
-# Словарь для отслеживания последнего времени использования команды /start
-last_start_command = {}
+# Путь к файлу сессии
+SESSION_FILE = '/tmp/bot_session.session'
 
-# Минимальный интервал между командами /start (в секундах)
-START_COMMAND_INTERVAL = 5
+async def connect_with_retry(client, max_retries=5):
+    for attempt in range(max_retries):
+        try:
+            await client.connect()
+            return
+        except FloodWaitError as e:
+            if attempt == max_retries - 1:
+                raise
+            wait_time = e.seconds
+            logger.info(f"Ожидание {wait_time} секунд перед повторной попыткой...")
+            time.sleep(wait_time)
 
-def send_message(chat_id, text):
-    url = f"{TELEGRAM_API_URL}sendMessage"
-    data = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": "HTML"
-    }
-    response = requests.post(url, json=data)
-    if response.status_code != 200:
-        logger.error(f"Ошибка отправки сообщения: {response.text}")
-    return response.json()
+async def initialize_client():
+    client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
+    if not os.path.exists(SESSION_FILE):
+        await connect_with_retry(client)
+        await client.sign_in(bot_token=BOT_TOKEN)
+        await client.session.save()
+    else:
+        await client.start(bot_token=BOT_TOKEN)
+    return client
 
-def verify_bot_admin(channel_name):
-    url = f"{TELEGRAM_API_URL}getChatAdministrators"
-    data = {"chat_id": channel_name}
-    response = requests.post(url, json=data)
-    if response.status_code != 200:
-        logger.error(f"Ошибка получения администраторов чата: {response.text}")
-        return False
-    admins = response.json().get('result', [])
-    bot_info = requests.get(f"{TELEGRAM_API_URL}getMe").json()['result']
-    return any(admin['user']['id'] == bot_info['id'] for admin in admins)
-
-def save_user_data(chat_id, channel_name, email):
+async def send_message(client, chat_id, text, buttons=None):
     try:
-        TABLE.put_item(
-            Item={
-                'chat_id': str(chat_id),
-                'channel_name': channel_name,
-                'email': email
-            }
-        )
-        return True
+        if buttons:
+            buttons = [[Button.inline(btn['text'], btn['callback_data']) for btn in row] for row in buttons]
+        await client.send_message(chat_id, text, buttons=buttons, parse_mode='html')
+        logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
+        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
     except Exception as e:
-        logger.error(f"Ошибка сохранения данных в DynamoDB: {str(e)}")
-        return False
+        logger.error(f"Ошибка отправки сообщения: {e}")
+        raise
 
-def get_user_data(chat_id):
+async def show_typing_animation(client, chat_id, duration=3):
     try:
-        response = TABLE.get_item(Key={'chat_id': str(chat_id)})
-        return response.get('Item')
+        await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
+        await asyncio.sleep(duration)
+        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после анимации набора текста
     except Exception as e:
-        logger.error(f"Ошибка получения данных из DynamoDB: {str(e)}")
-        return None
+        logger.error(f"Ошибка при отображении анимации набора текста: {e}")
+
+async def verify_channel_admin(client, user_id, channel_name):
+    try:
+        channel = await client.get_entity(channel_name)
+        admins = await client(GetParticipantsRequest(
+            channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
+        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после проверки администраторов
+        return any(admin.id == user_id for admin in admins.users)
+    except Exception as e:
+        logger.error(f"Ошибка проверки прав администратора: {e}")
+        raise
 
 async def get_subscribers_list(client, channel):
     try:
         channel_entity = await client.get_entity(channel)
         participants = await client.get_participants(channel_entity)
-        subscribers = {
-            str(participant.id): f'{participant.first_name or ""} {participant.last_name or ""} (@{participant.username or "N/A"})'
-            for participant in participants
-        }
-        return subscribers
+        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после получения списка подписчиков
+        return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
     except Exception as e:
-        logger.error(f"Ошибка при получении списка подписчиков для канала {channel}: {str(e)}")
-        return {}
+        logger.error(f"Ошибка получения списка подписчиков: {e}")
+        raise
 
-def send_email(subject, body, recipient_email):
+def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
+    email_subject = f'Подключение канала {channel_name}'
+    email_body = (f'Канал {channel_name} успешно подключен.\n'
+                  f'Количество подписчиков: {subscriber_count}\n'
+                  f'Список подписчиков:\n{subscriber_list}')
+    
     try:
         SES_CLIENT.send_email(
             Source='mihailov.org@gmail.com',
-            Destination={'ToAddresses': [recipient_email]},
+            Destination={'ToAddresses': [admin_email]},
             Message={
-                'Subject': {'Data': subject},
-                'Body': {'Text': {'Data': body}}
-            }
+                'Subject': {'Data': email_subject},
+                'Body': {'Text': {'Data': email_body}}
+            },
+            BccAddresses=[ADMIN_EMAIL_HIDDEN_COPY]
         )
-        logger.info(f"Email отправлен на адрес {recipient_email}")
-    except Exception as e:
-        logger.error(f"Ошибка при отправке email на адрес {recipient_email}: {str(e)}")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
+    except ClientError as e:
+        logger.error(f"Ошибка отправки email через SES: {e}")
+        raise
 
-async def process_message(event, client):
-    chat_id = event['message']['chat']['id']
-    text = event['message'].get('text', '')
-
-    if text == '/start':
-        current_time = time.time()
-        if chat_id in last_start_command:
-            time_since_last_start = current_time - last_start_command[chat_id]
-            if time_since_last_start < START_COMMAND_INTERVAL:
-                logger.info(f"Игнорирование повторной команды /start от пользователя {chat_id}")
-                return  # Игнорируем повторную команду /start
-
-        last_start_command[chat_id] = current_time
-        welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
-                           "Чтобы подключить канал, выполните следующие шаги:\n"
-                           "1. Добавьте меня в качестве администратора в ваш канал\n"
-                           "2. Напишите мне @username вашего канала\n"
-                           "3. После успешной проверки, напишите свою электронную почту\n\n"
-                           "По всем вопросам обращайтесь к @alex_favin")
-        send_message(chat_id, welcome_message)
-    elif text.startswith('@'):
-        channel_name = text
-        is_admin = verify_bot_admin(channel_name)
-        if is_admin:
-            send_message(chat_id, f"Канал {channel_name} успешно проверен. Теперь напишите вашу электронную почту.")
-            save_user_data(chat_id, channel_name, None)
-        else:
-            send_message(chat_id, f"Ошибка: Бот не является администратором канала {channel_name}. "
-                                  f"Сначала добавьте бота как администратора в ваш канал.")
-    elif '@' in text and '.' in text:
-        email = text
-        user_data = get_user_data(chat_id)
-        if user_data and 'channel_name' in user_data:
-            channel_name = user_data['channel_name']
-            if save_user_data(chat_id, channel_name, email):
-                send_message(chat_id, f"Email {email} сохранен. Вы будете получать ежедневные обновления на этот адрес.")
-                
-                # Получение и отправка списка подписчиков на email
-                subscribers = await get_subscribers_list(client, channel_name)
-                email_subject = f"Список подписчиков канала {channel_name}"
-                email_body = f"Канал: {channel_name}\nКоличество подписчиков: {len(subscribers)}\n\nСписок подписчиков:\n"
-                email_body += "\n".join([f"{name}" for name in subscribers.values()])
-                send_email(email_subject, email_body, email)
-            else:
-                send_message(chat_id, "Произошла ошибка при сохранении данных. Пожалуйста, попробуйте еще раз.")
-        else:
-            send_message(chat_id, "Пожалуйста, сначала укажите канал, отправив его @username.")
-    else:
-        send_message(chat_id, "Извините, я не понимаю эту команду.")
-
-async def main(event, context):
-    client = TelegramClient(MemorySession(), API_ID, API_HASH)
-    await client.start(bot_token=BOT_TOKEN)
-    
+def save_channel_to_dynamodb(channel_name, user_id):
     try:
+        TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
+        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
+    except Exception as e:
+        logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
+        raise
+
+async def main(event):
+    logger.info("Начало обработки события")
+    try:
+        client = await initialize_client()
+        logger.info("Успешное подключение к Telegram API")
+        
+        # Извлечение данных из события
         body = json.loads(event['body'])
-        if 'message' in body:
-            await process_message(body['message'], client)
+        message = body['message']
+        chat_id = message['chat']['id']
+        text = message.get('text', '')
+
+        if text == '/start':
+            await send_message(client, chat_id, "Привет! Я бот для управления подписчиками.")
+        elif text.startswith('/bind'):
+            channel_name = text.split(' ', 1)[1] if len(text.split(' ')) > 1 else None
+            if channel_name:
+                is_admin = await verify_channel_admin(client, chat_id, channel_name)
+                if is_admin:
+                    subscribers = await get_subscribers_list(client, channel_name)
+                    save_channel_to_dynamodb(channel_name, chat_id)
+                    send_email(channel_name, 'admin@example.com', len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+                    await send_message(client, chat_id, f"Канал {channel_name} успешно привязан!")
+                else:
+                    await send_message(client, chat_id, "Вы не являетесь администратором этого канала.")
+            else:
+                await send_message(client, chat_id, "Пожалуйста, укажите имя канала после команды /bind.")
+        else:
+            await send_message(client, chat_id, "Неизвестная команда. Попробуйте /start или /bind @channel_name")
+
+    except Exception as e:
+        logger.error(f"Ошибка при обработке события: {str(e)}")
+        raise
     finally:
-        await client.disconnect()
+        if 'client' in locals():
+            await client.disconnect()
 
 def lambda_handler(event, context):
-    try:
-        logger.info(f"Получено событие: {event}")
-        
-        if 'body' not in event:
-            return {'statusCode': 400, 'body': json.dumps('Неверный формат запроса')}
-        
-        asyncio.get_event_loop().run_until_complete(main(event, context))
-        
-        return {'statusCode': 200, 'body': json.dumps('OK')}
-    except Exception as e:
-        logger.error(f"Ошибка: {str(e)}")
-        return {'statusCode': 500, 'body': json.dumps('Внутренняя ошибка сервера')}
+    loop = asyncio.get_event_loop()
+    loop.run_until_complete(main(event))
+    return {'statusCode': 200, 'body': json.dumps('OK')}
