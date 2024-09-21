@@ -137,7 +137,11 @@ async def process_message(client, chat_id, text, user_id):
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
         if is_admin:
-            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+            last_reminder_time = get_last_reminder_time(user_id)
+            current_time = time.time()
+            if last_reminder_time is None or (current_time - last_reminder_time) >= 180:  # 180 секунд = 3 минуты
+                await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+                save_last_reminder_time(user_id, current_time)
             save_channel_to_dynamodb(channel_name, user_id)
         else:
             await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
