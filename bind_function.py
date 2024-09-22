@@ -125,14 +125,15 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
                         f'Количество подписчиков: {subscriber_count}\n'
                         f'Список подписчиков:\n')
     
-    for user_id, user_info in subscriber_list.items():
+    subscriber_dict = json.loads(subscriber_list)
+    for user_id, user_info in subscriber_dict.items():
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
         admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
     # Письмо для 4mihailov@gmail.com
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
-                        f'Админ, который его подключил: @{username}\n'
+                        f'Админ, который его подключил: @{admin_email}\n'
                         f'Количество подписчиков канала: {subscriber_count}')
     
     try:
