@@ -151,18 +151,35 @@ async def process_message(client, chat_id, text, user_id):
                     save_last_reminder_time(user_id, current_time)
                 except NameError:
                     logger.warning("Функция save_last_reminder_time не определена. Пропускаем сохранение времени напоминания.")
-            save_channel_to_dynamodb(channel_name, user_id)
+            try:
+                save_channel_to_dynamodb(channel_name, user_id)
+                logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
         else:
             await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
     elif '@' in text and '.' in text:  # Простая проверка на email
         # Обработка email
         email = text
-        channel_name = get_channel_from_dynamodb(user_id)
+        try:
+            channel_name = get_channel_from_dynamodb(user_id)
+            logger.info(f"Получено название канала из DynamoDB для пользователя {user_id}: {channel_name}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении названия канала из DynamoDB для пользователя {user_id}: {str(e)}")
+            channel_name = None
+        
         if channel_name:
-            subscribers = await get_subscribers_list(client, channel_name)
-            send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
-            await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+            try:
+                subscribers = await get_subscribers_list(client, channel_name)
+                logger.info(f"Получен список подписчиков для канала {channel_name}")
+                send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+                logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
+                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+            except Exception as e:
+                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
         else:
+            logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
