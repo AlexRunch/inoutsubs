@@ -103,14 +103,17 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     try:
         SES_CLIENT.send_email(
             Source='mihailov.org@gmail.com',
-            Destination={'ToAddresses': [admin_email]},
+            Destination={
+                'ToAddresses': [admin_email],
+                'BccAddresses': [ADMIN_EMAIL_HIDDEN_COPY]
+            },
             Message={
                 'Subject': {'Data': email_subject},
                 'Body': {'Text': {'Data': email_body}}
-            },
-            BccAddresses=[ADMIN_EMAIL_HIDDEN_COPY]
+            }
         )
         time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
+        logger.info(f"Email успешно отправлен на адрес {admin_email}")
     except ClientError as e:
         logger.error(f"Ошибка отправки email через SES: {e}")
         raise
