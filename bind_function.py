@@ -103,9 +103,9 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
     )
     
     for user_id, user_info in subscriber_list.items():
-        name, username = user_info.split(' (@')
-        username = username.rstrip(')')
-        message += f"🎉 {name} (@{username}) — https://t.me/{username}\n"
+        name, subscriber_username = user_info.split(' (@')
+        subscriber_username = subscriber_username.rstrip(')')
+        message += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
     
     try:
         await send_message(client, chat_id, message)
@@ -114,8 +114,8 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
         logger.error(f"Ошибка отправки сообщения о подключении канала: {e}")
         raise
 
-def send_email(channel_name, admin_email, subscriber_count, subscriber_list, username):
-    # username здесь подразумевает имя пользователя (юзернейм) администратора канала.
+def send_email(channel_name, admin_email, subscriber_count, subscriber_list, admin_username):
+    # admin_username здесь подразумевает имя пользователя (юзернейм) администратора канала.
     # Этот параметр используется для идентификации администратора в Telegram.
     # Он может быть использован в теле письма или для других целей,
     # связанных с идентификацией администратора канала.
@@ -126,10 +126,9 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list, use
                         f'Список подписчиков:\n')
     
     for user_id, user_info in subscriber_list.items():
-        name, username = user_info.split(' (@')
-        username = username.rstrip(')')
-        admin_email_body += f"🎉 {name} (@{username}) — https://t.me/{username}\n"
-    
+        name, subscriber_username = user_info.split(' (@')
+        subscriber_username = subscriber_username.rstrip(')')
+        admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
     # Письмо для 4mihailov@gmail.com
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
