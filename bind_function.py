@@ -129,7 +129,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list, adm
     # Письмо для 4mihailov@gmail.com
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
-                        f'Админ, который его подключил: {admin_name}\n'
+                        f'Админ, который его подключил: @{username}\n'
                         f'Количество подписчиков канала: {subscriber_count}')
     
     try:
