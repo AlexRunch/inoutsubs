@@ -114,7 +114,11 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
         logger.error(f"Ошибка отправки сообщения о подключении канала: {e}")
         raise
 
-def send_email(channel_name, admin_email, subscriber_count, subscriber_list, admin_name):
+def send_email(channel_name, admin_email, subscriber_count, subscriber_list, username):
+    # username здесь подразумевает имя пользователя (юзернейм) администратора канала.
+    # Этот параметр используется для идентификации администратора в Telegram.
+    # Он может быть использован в теле письма или для других целей,
+    # связанных с идентификацией администратора канала.
     # Письмо для админа канала
     admin_email_subject = f'Подключение канала {channel_name}'
     admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
