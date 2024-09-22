@@ -130,7 +130,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
         admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
-    # Письмо для 4mihailov@gmail.com
+    # Письмо для mihailov.org@gmail.com
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
                         f'Админ, который его подключил: @{admin_email}\n'
@@ -150,11 +150,11 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
             }
         )
         
-        # Отправка письма на 4mihailov@gmail.com
+        # Отправка письма на mihailov.org@gmail.com
         SES_CLIENT.send_email(
             Source='mihailov.org@gmail.com',
             Destination={
-                'ToAddresses': ['4mihailov@gmail.com']
+                'ToAddresses': ['mihailov.org@gmail.com']
             },
             Message={
                 'Subject': {'Data': owner_email_subject},
@@ -163,7 +163,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         )
         
         time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
-        logger.info(f"Email успешно отправлен на адреса {admin_email} и 4mihailov@gmail.com")
+        logger.info(f"Email успешно отправлен на адреса {admin_email} и mihailov.org@gmail.com")
     except ClientError as e:
         logger.error(f"Ошибка отправки email через SES: {e}")
         raise
