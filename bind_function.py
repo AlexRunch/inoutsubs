@@ -94,13 +94,46 @@ async def get_subscribers_list(client, channel):
         logger.error(f"Ошибка получения списка подписчиков: {e}")
         raise
 
-def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
-    email_subject = f'Подключение канала {channel_name}'
-    email_body = (f'Канал {channel_name} успешно подключен.\n'
-                  f'Количество подписчиков: {subscriber_count}\n'
-                  f'Список подписчиков:\n{subscriber_list}')
+async def send_channel_connected_message(client, chat_id, channel_name, subscriber_count, subscriber_list):
+    message = (
+        f"Хей-хей! Мы успешно подключили канал и теперь каждый день будем присылать информацию о том, "
+        f"кто подписался, а кто отписался от канала.\n\n"
+        f"На сегодняшний день у тебя: {subscriber_count}\n\n"
+        f"Вот их список:\n"
+    )
+    
+    for user_id, user_info in subscriber_list.items():
+        name, username = user_info.split(' (@')
+        username = username.rstrip(')')
+        message += f"🎉 {name} (@{username}) — https://t.me/{username}\n"
     
     try:
+        await send_message(client, chat_id, message)
+        logger.info(f"Сообщение о подключении канала успешно отправлено в чат {chat_id}")
+    except Exception as e:
+        logger.error(f"Ошибка отправки сообщения о подключении канала: {e}")
+        raise
+
+def send_email(channel_name, admin_email, subscriber_count, subscriber_list, admin_name):
+    # Письмо для админа канала
+    admin_email_subject = f'Подключение канала {channel_name}'
+    admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
+                        f'Количество подписчиков: {subscriber_count}\n'
+                        f'Список подписчиков:\n')
+    
+    for user_id, user_info in subscriber_list.items():
+        name, username = user_info.split(' (@')
+        username = username.rstrip(')')
+        admin_email_body += f"🎉 {name} (@{username}) — https://t.me/{username}\n"
+    
+    # Письмо для 4mihailov@gmail.com
+    owner_email_subject = f'Подключен новый канал {channel_name}'
+    owner_email_body = (f'Название канала: {channel_name}\n'
+                        f'Админ, который его подключил: {admin_name}\n'
+                        f'Количество подписчиков канала: {subscriber_count}')
+    
+    try:
+        # Отправка письма админу канала
         SES_CLIENT.send_email(
             Source='mihailov.org@gmail.com',
             Destination={
@@ -108,12 +141,25 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
                 'BccAddresses': [ADMIN_EMAIL_HIDDEN_COPY]
             },
             Message={
-                'Subject': {'Data': email_subject},
-                'Body': {'Text': {'Data': email_body}}
+                'Subject': {'Data': admin_email_subject},
+                'Body': {'Text': {'Data': admin_email_body}}
             }
         )
+        
+        # Отправка письма на 4mihailov@gmail.com
+        SES_CLIENT.send_email(
+            Source='mihailov.org@gmail.com',
+            Destination={
+                'ToAddresses': ['4mihailov@gmail.com']
+            },
+            Message={
+                'Subject': {'Data': owner_email_subject},
+                'Body': {'Text': {'Data': owner_email_body}}
+            }
+        )
+        
         time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
-        logger.info(f"Email успешно отправлен на адрес {admin_email}")
+        logger.info(f"Email успешно отправлен на адреса {admin_email} и 4mihailov@gmail.com")
     except ClientError as e:
         logger.error(f"Ошибка отправки email через SES: {e}")
         raise
