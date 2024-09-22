@@ -4,6 +4,7 @@ import boto3
 import time
 import os
 import asyncio
+from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
@@ -24,7 +25,7 @@ BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 # Конфигурация S3 и DynamoDB
 S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
-TABLE = DYNAMODB.Table('telegram-subscribers')
+TABLE = DYNAMODB.Table('telegram-subscribers-new')
 
 # Конфигурация SES
 SES_CLIENT = boto3.client('ses', region_name='eu-north-1')
@@ -114,10 +115,20 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         logger.error(f"Ошибка отправки email через SES: {e}")
         raise
 
-def save_channel_to_dynamodb(channel_name, user_id):
+def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers):
+    current_date = datetime.now().strftime("%Y-%m-%d")
     try:
-        TABLE.put_item(Item={'channel_id': channel_name, 'user_id': str(user_id)})
-        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
+        TABLE.put_item(
+            Item={
+                'channel_id': channel_id,
+                'date': current_date,
+                'admin_user_id': str(admin_user_id),
+                'subscribers': subscribers,
+                'new_subscribers': [],
+                'unsubscribed': []
+            }
+        )
+        logger.info(f"Канал {channel_id} успешно сохранен в DynamoDB")
         time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
     except Exception as e:
         logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
@@ -133,33 +144,20 @@ async def process_message(client, chat_id, text, user_id):
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
     elif text.startswith('@'):
-        # Проверка канала
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
         if is_admin:
+            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
             try:
-                last_reminder_time = get_last_reminder_time(user_id)
-            except NameError:
-                # Если функция не определена, создаем временное решение
-                last_reminder_time = None
-                logger.warning("Функция get_last_reminder_time не определена. Используется временное решение.")
-            
-            current_time = time.time()
-            if last_reminder_time is None or (current_time - last_reminder_time) >= 180:  # 180 секунд = 3 минуты
-                await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
-                try:
-                    save_last_reminder_time(user_id, current_time)
-                except NameError:
-                    logger.warning("Функция save_last_reminder_time не определена. Пропускаем сохранение времени напоминания.")
-            try:
-                save_channel_to_dynamodb(channel_name, user_id)
+                subscribers = await get_subscribers_list(client, channel_name)
+                save_channel_to_dynamodb(channel_name, user_id, subscribers)
                 logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при сохранении данных канала. Пожалуйста, попробуйте еще раз.")
         else:
             await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
     elif '@' in text and '.' in text:  # Простая проверка на email
-        # Обработка email
         email = text
         try:
             channel_name = get_channel_from_dynamodb(user_id)
@@ -183,6 +181,22 @@ async def process_message(client, chat_id, text, user_id):
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
+
+def get_channel_from_dynamodb(admin_user_id):
+    try:
+        response = TABLE.query(
+            IndexName='AdminUserIndex',
+            KeyConditionExpression='admin_user_id = :admin_id',
+            ExpressionAttributeValues={':admin_id': str(admin_user_id)},
+            Limit=1
+        )
+        items = response.get('Items', [])
+        if items:
+            return items[0]['channel_id']
+        return None
+    except Exception as e:
+        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
+        return None
 
 async def main(event):
     logger.info("Начало обработки события")
@@ -242,11 +256,3 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': str(e)})
         }
     return {'statusCode': 200, 'body': json.dumps('OK')}
-
-def get_channel_from_dynamodb(user_id):
-    try:
-        response = TABLE.get_item(Key={'user_id': str(user_id)})
-        return response.get('Item', {}).get('channel_id')
-    except Exception as e:
-        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
-        return None
