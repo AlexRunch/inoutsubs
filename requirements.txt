@@ -1,5 +1,4 @@
 boto3
-asyncio
 telethon
 logging
 sib-api-v3-sdk
