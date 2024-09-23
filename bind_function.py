@@ -12,6 +12,8 @@ from telethon.errors import FloodWaitError, SessionPasswordNeededError
 from botocore.exceptions import ClientError
 from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -27,9 +29,12 @@ S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
 
-# Конфигурация SES
-SES_CLIENT = boto3.client('ses', region_name='eu-north-1')
-ADMIN_EMAIL_HIDDEN_COPY = 'mihailov.org@gmail.com'
+# Конфигурация Brevo
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
+
+if not BREVO_API_KEY:
+    logger.error("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
+    raise ValueError("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
 
 # Путь к файлу сессии
 SESSION_FILE = '/tmp/bot_session.session'
@@ -115,11 +120,10 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
         raise
 
 def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
-    # admin_username здесь подразумевает имя пользователя (юзернейм) администратора канала.
-    # Этот параметр используется для идентификации администратора в Telegram.
-    # Он может быть использован в теле письма или для других целей,
-    # связанных с идентификацией администратора канала.
-    # Письмо для админа канала
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = BREVO_API_KEY
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
     admin_email_subject = f'Подключение канала {channel_name}'
     admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
                         f'Количество подписчиков: {subscriber_count}\n'
@@ -130,64 +134,59 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
         admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
-    # Письмо для mihailov.org@gmail.com
+    
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
                         f'Админ, который его подключил: @{admin_email}\n'
                         f'Количество подписчиков канала: {subscriber_count}')
     
+    send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": admin_email}],
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        subject=admin_email_subject,
+        text_content=admin_email_body
+    )
+
+    send_smtp_email_owner = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": "mihailov.org@gmail.com"}],
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        subject=owner_email_subject,
+        text_content=owner_email_body
+    )
+
     try:
-        # Отправка письма админу канала
-        SES_CLIENT.send_email(
-            Source='mihailov.org@gmail.com',
-            Destination={
-                'ToAddresses': [admin_email],
-                'BccAddresses': [ADMIN_EMAIL_HIDDEN_COPY]
-            },
-            Message={
-                'Subject': {'Data': admin_email_subject},
-                'Body': {'Text': {'Data': admin_email_body}}
-            }
-        )
-        
-        # Отправка письма на mihailov.org@gmail.com
-        SES_CLIENT.send_email(
-            Source='mihailov.org@gmail.com',
-            Destination={
-                'ToAddresses': ['mihailov.org@gmail.com']
-            },
-            Message={
-                'Subject': {'Data': owner_email_subject},
-                'Body': {'Text': {'Data': owner_email_body}}
-            }
-        )
-        
-        time.sleep(1)  # Добавляем задержку в 1 секунду после отправки email
-        logger.info(f"Email успешно отправлен на адреса {admin_email} и mihailov.org@gmail.com")
-    except ClientError as e:
-        logger.error(f"Ошибка отправки email через SES: {e}")
+        api_response_admin = api_instance.send_transac_email(send_smtp_email_admin)
+        api_response_owner = api_instance.send_transac_email(send_smtp_email_owner)
+        logger.info(f"Email успешно отправлен на адрес {admin_email} и mihailov.org@gmail.com")
+        logger.info(f"API Response Admin: {api_response_admin}")
+        logger.info(f"API Response Owner: {api_response_owner}")
+    except ApiException as e:
+        logger.error(f"Ошибка при отправке email через Brevo: {e}")
         raise
 
-def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers):
+def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None, admin_name=None):
     current_date = datetime.now().strftime("%Y-%m-%d")
     try:
-        TABLE.put_item(
-            Item={
-                'channel_id': channel_id,
-                'date': current_date,
-                'admin_user_id': str(admin_user_id),
-                'subscribers': subscribers,
-                'new_subscribers': [],
-                'unsubscribed': []
-            }
-        )
+        item = {
+            'channel_id': channel_id,
+            'date': current_date,
+            'admin_user_id': str(admin_user_id),
+            'subscribers': subscribers,
+            'new_subscribers': [],
+            'unsubscribed': [],
+            'total_subs': len(subscribers),
+            'admin_name': admin_name
+        }
+        if email:
+            item['email'] = email
+        TABLE.put_item(Item=item)
         logger.info(f"Канал {channel_id} успешно сохранен в DynamoDB")
         time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
     except Exception as e:
         logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
         raise
 
-async def process_message(client, chat_id, text, user_id):
+async def process_message(client, chat_id, text, user_id, user_name):
     if text == '/start':
         welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                            "Чтобы подключить канал, выполните следующие шаги:\n"
@@ -203,7 +202,7 @@ async def process_message(client, chat_id, text, user_id):
             await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
             try:
                 subscribers = await get_subscribers_list(client, channel_name)
-                save_channel_to_dynamodb(channel_name, user_id, subscribers)
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, admin_name=user_name)
                 logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
             except Exception as e:
                 logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
@@ -226,6 +225,7 @@ async def process_message(client, chat_id, text, user_id):
                 send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
                 logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
                 await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
             except Exception as e:
                 logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
                 await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
@@ -285,10 +285,11 @@ async def main(event):
         chat_id = message['chat']['id']
         user_id = message['from']['id']
         text = message.get('text', '')
+        user_name = message['from'].get('username', '')
 
-        logger.info(f"Обработка сообщения: chat_id={chat_id}, user_id={user_id}, text={text}")
+        logger.info(f"Обработка сообщения: chat_id={chat_id}, user_id={user_id}, user_name={user_name}, text={text}")
 
-        await process_message(client, chat_id, text, user_id)
+        await process_message(client, chat_id, text, user_id, user_name)
 
     except Exception as e:
         logger.error(f"Ошибка при обработке события: {str(e)}")
