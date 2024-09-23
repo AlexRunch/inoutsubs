@@ -1,6 +1,7 @@
 import json
 import boto3
 import asyncio
+import os
 from telethon import TelegramClient
 from telethon.sessions import MemorySession
 from datetime import datetime
@@ -20,9 +21,11 @@ BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 # Конфигурация DynamoDB и Brevo
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
-import os
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
 
-BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Ваш API ключ Brevo из секретов GitHub
+if not BREVO_API_KEY:
+    logger.error("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
+    raise ValueError("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
 
 async def get_subscribers_list(client, channel):
     try:
@@ -78,7 +81,7 @@ async def process_channel(client, channel_data):
         if new_subscribers or unsubscribed:
             email_subject = f'Обновления по подписчикам канала {channel_name}'
             email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
-                         "\nОтписались:\n" + "\n.join([f"{name}" for name in unsubscribed.values()])
+                         "\nОтписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
         else:
             email_subject = f'Статус подписчиков канала {channel_name}'
             email_body = "Статус подписчиков - без изменений"
