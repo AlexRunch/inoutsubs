@@ -74,8 +74,12 @@ async def save_user_to_dynamodb(user_id, user_name, message=None):
             item['inbox_message'] = message
         USER_TABLE.put_item(Item=item)
         logger.info(f"Пользователь {user_id} успешно сохранен в DynamoDB (my-telegram-users)")
-    except Exception as e:
-        logger.error(f"Ошибка сохранения пользователя в DynamoDB (my-telegram-users): {e}")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'AccessDeniedException':
+            logger.error(f"Ошибка доступа при сохранении пользователя в DynamoDB (my-telegram-users): {e}")
+            logger.error("Проверьте настройки IAM и убедитесь, что у Lambda есть необходимые разрешения.")
+        else:
+            logger.error(f"Ошибка сохранения пользователя в DynamoDB (my-telegram-users): {e}")
         raise
 
 async def broadcast_message(client, message_text):
@@ -213,8 +217,12 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
         TABLE.put_item(Item=item)
         logger.info(f"Канал {channel_id} успешно сохранен в DynamoDB")
         time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
-    except Exception as e:
-        logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'AccessDeniedException':
+            logger.error(f"Ошибка доступа при сохранении канала в DynamoDB: {e}")
+            logger.error("Проверьте настройки IAM и убедитесь, что у Lambda есть необходимые разрешения.")
+        else:
+            logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
         raise
 
 async def process_message(client, chat_id, text, user_id, user_name):
@@ -286,8 +294,12 @@ def get_channel_from_dynamodb(admin_user_id):
         if items:
             return items[0]['channel_id']
         return None
-    except Exception as e:
-        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
+    except ClientError as e:
+        if e.response['Error']['Code'] == 'AccessDeniedException':
+            logger.error(f"Ошибка доступа при получении канала из DynamoDB: {e}")
+            logger.error("Проверьте настройки IAM и убедитесь, что у Lambda есть необходимые разрешения.")
+        else:
+            logger.error(f"Ошибка получения канала из DynamoDB: {e}")
         return None
 
 async def main(event):
