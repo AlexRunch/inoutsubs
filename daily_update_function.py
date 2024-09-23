@@ -95,7 +95,7 @@ async def process_channel(client, channel_data):
             UpdateExpression="set subscribers = :s, last_update = :u",
             ExpressionAttributeValues={
                 ':s': json.dumps(current_subscribers, ensure_ascii=False),
-                ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                ':u': datetime.now().strftime("%Y-%m-%d %H:%М:%С")
             }
         )
         logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
