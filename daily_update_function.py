@@ -24,8 +24,9 @@ TABLE = DYNAMODB.Table('telegram-subscribers-new')
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
 
 if not BREVO_API_KEY:
-    logger.error("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
-    raise ValueError("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
+    error_message = "BREVO_API_KEY не установлен. Проверьте переменные окружения."
+    logger.error(error_message)
+    raise ValueError(error_message.encode('utf-8'))
 
 async def get_subscribers_list(client, channel):
     try:
@@ -62,7 +63,12 @@ async def process_channel(client, channel_data):
     try:
         channel_name = channel_data['channel_id']
         date = channel_data['date']
-        admin_email = channel_data.get('email', 'no_email_provided@example.com')
+        admin_email = channel_data.get('email')
+        
+        if not admin_email or admin_email == 'no_email_provided@example.com':
+            logger.error(f"Адрес электронной почты администратора не указан для канала {channel_name}")
+            return
+        
         previous_subscribers = channel_data.get('subscribers', '{}')
         
         # Проверка типа данных и преобразование в строку, если необходимо
@@ -95,7 +101,6 @@ async def process_channel(client, channel_data):
         
         # Отправка email
         send_email(email_subject, email_body, admin_email)
-        logger.info(f"Письмо действительно отправлено на адрес {admin_email} используя Brevo")
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
@@ -103,7 +108,7 @@ async def process_channel(client, channel_data):
             UpdateExpression="set subscribers = :s, last_update = :u",
             ExpressionAttributeValues={
                 ':s': json.dumps(current_subscribers, ensure_ascii=False),
-                ':u': datetime.now().strftime("%Y-%m-%d %H:%М:%С")
+                ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%С")
             }
         )
         logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
@@ -122,9 +127,6 @@ async def main():
         channels = response['Items']
         logger.info(f"Найдено {len(channels)} каналов для обработки")
         
-        # Логирование данных о каналах
-        logger.info(f"Данные о каналах: {channels}")
-        
         # Создание задач для обработки каждого канала
         tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
         await asyncio.gather(*tasks)
@@ -141,4 +143,4 @@ def lambda_handler(event, context):
         return {'statusCode': 200, 'body': 'Ежедневная рассылка завершена.'}
     except Exception as e:
         logger.error(f"Ошибка в lambda_handler: {e}")
-        return {'statusCode': 500, 'body': f'Ошибка: {e}'}
+        return {'statusCode': 500, 'body': f'Ошибка: {e}'.encode('utf-8')}
