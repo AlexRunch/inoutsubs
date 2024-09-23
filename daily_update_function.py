@@ -95,6 +95,7 @@ async def process_channel(client, channel_data):
         
         # Отправка email
         send_email(email_subject, email_body, admin_email)
+        logger.info(f"Письмо действительно отправлено на адрес {admin_email} используя Brevo")
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
@@ -120,6 +121,9 @@ async def main():
         response = TABLE.scan()
         channels = response['Items']
         logger.info(f"Найдено {len(channels)} каналов для обработки")
+        
+        # Логирование данных о каналах
+        logger.info(f"Данные о каналах: {channels}")
         
         # Создание задач для обработки каждого канала
         tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
