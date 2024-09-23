@@ -53,6 +53,7 @@ def send_email(subject, body, recipient_email):
     try:
         api_response = api_instance.send_transac_email(send_smtp_email)
         logger.info(f"Email успешно отправлен на адрес {recipient_email}")
+        logger.info(f"API Response: {api_response}")
     except ApiException as e:
         logger.error(f"Ошибка при отправке email на адрес {recipient_email}: {e}")
         raise
@@ -85,6 +86,12 @@ async def process_channel(client, channel_data):
         else:
             email_subject = f'Статус подписчиков канала {channel_name}'
             email_body = "Статус подписчиков - без изменений"
+        
+        # Логирование отправляемого письма
+        logger.info(f"Отправка email на адрес {admin_email} с темой '{email_subject}' и телом:\n{email_body}")
+        
+        # Логирование адреса электронной почты
+        logger.info(f"Адрес электронной почты для отправки: {admin_email}")
         
         # Отправка email
         send_email(email_subject, email_body, admin_email)
