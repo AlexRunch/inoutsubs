@@ -5,6 +5,8 @@ from telethon import TelegramClient
 from telethon.sessions import MemorySession
 from datetime import datetime
 import logging
+import sib_api_v3_sdk
+from sib_api_v3_sdk.rest import ApiException
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -15,10 +17,12 @@ API_ID = 24502638
 API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
 BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
-# Конфигурация DynamoDB и SES
+# Конфигурация DynamoDB и Brevo
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
-SES_CLIENT = boto3.client('ses', region_name='eu-north-1')
+import os
+
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Ваш API ключ Brevo из секретов GitHub
 
 async def get_subscribers_list(client, channel):
     try:
@@ -32,17 +36,21 @@ async def get_subscribers_list(client, channel):
         raise
 
 def send_email(subject, body, recipient_email):
+    configuration = sib_api_v3_sdk.Configuration()
+    configuration.api_key['api-key'] = BREVO_API_KEY
+    api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+
+    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": recipient_email}],
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        subject=subject,
+        text_content=body
+    )
+
     try:
-        SES_CLIENT.send_email(
-            Source='mihailov.org@gmail.com',
-            Destination={'ToAddresses': [recipient_email]},
-            Message={
-                'Subject': {'Data': subject},
-                'Body': {'Text': {'Data': body}}
-            }
-        )
+        api_response = api_instance.send_transac_email(send_smtp_email)
         logger.info(f"Email успешно отправлен на адрес {recipient_email}")
-    except Exception as e:
+    except ApiException as e:
         logger.error(f"Ошибка при отправке email на адрес {recipient_email}: {e}")
         raise
 
@@ -70,7 +78,7 @@ async def process_channel(client, channel_data):
         if new_subscribers or unsubscribed:
             email_subject = f'Обновления по подписчикам канала {channel_name}'
             email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
-                         "\nОтписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
+                         "\nОтписались:\n" + "\n.join([f"{name}" for name in unsubscribed.values()])
         else:
             email_subject = f'Статус подписчиков канала {channel_name}'
             email_body = "Статус подписчиков - без изменений"
