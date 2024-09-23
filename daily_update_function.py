@@ -51,7 +51,7 @@ async def process_channel(client, channel_data):
     unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
     
     # Если есть изменения, отправляем email
-    if new_subscribers or unsubscribed:
+    if new_subscribers или unsubscribed:
         email_subject = f'Обновления по подписчикам канала {channel_name}'
         email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
                      "\nОтписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
