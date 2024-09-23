@@ -49,6 +49,7 @@ def send_email(subject, body, recipient_email):
 async def process_channel(client, channel_data):
     try:
         channel_name = channel_data['channel_id']
+        date = channel_data['date']
         admin_email = channel_data.get('email', 'no_email_provided@example.com')
         previous_subscribers = channel_data.get('subscribers', '{}')
         
@@ -75,7 +76,7 @@ async def process_channel(client, channel_data):
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
-            Key={'channel_id': channel_name},
+            Key={'channel_id': channel_name, 'date': date},
             UpdateExpression="set subscribers = :s, last_update = :u",
             ExpressionAttributeValues={
                 ':s': json.dumps(current_subscribers, ensure_ascii=False),
@@ -99,7 +100,7 @@ async def main():
         logger.info(f"Найдено {len(channels)} каналов для обработки")
         
         # Создание задач для обработки каждого канала
-        tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data]
+        tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
         await asyncio.gather(*tasks)
         
         await client.disconnect()
