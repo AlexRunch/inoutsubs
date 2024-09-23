@@ -66,13 +66,17 @@ async def process_channel(client, channel_data):
         new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
         unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
         
-        # Если есть изменения, отправляем email
+        # Формирование тела письма
         if new_subscribers or unsubscribed:
             email_subject = f'Обновления по подписчикам канала {channel_name}'
             email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
                          "\nОтписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
-            
-            send_email(email_subject, email_body, admin_email)
+        else:
+            email_subject = f'Статус подписчиков канала {channel_name}'
+            email_body = "Статус подписчиков - без изменений"
+        
+        # Отправка email
+        send_email(email_subject, email_body, admin_email)
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
