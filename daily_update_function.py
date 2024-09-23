@@ -35,7 +35,13 @@ def send_email(subject, body, recipient_email):
 async def process_channel(client, channel_data):
     channel_name = channel_data['channel_id']
     admin_email = channel_data.get('email', 'no_email_provided@example.com')
-    previous_subscribers = json.loads(channel_data.get('subscribers', '{}'))
+    previous_subscribers = channel_data.get('subscribers', '{}')
+    
+    # Проверка типа данных и преобразование в строку, если необходимо
+    if isinstance(previous_subscribers, dict):
+        previous_subscribers = json.dumps(previous_subscribers)
+    
+    previous_subscribers = json.loads(previous_subscribers)
     
     # Получение текущих подписчиков канала
     current_subscribers = await get_subscribers_list(client, channel_name)
