@@ -5,7 +5,7 @@ import time
 import os
 import asyncio
 from datetime import datetime
-from telethon import TelegramClient, events, Button
+from telethon import TelegramClient, events
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
@@ -15,7 +15,7 @@ from telethon.tl.types import SendMessageTypingAction
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-# Настройка логгера
+# Настройка логгера для записи информации о работе программы
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -24,25 +24,26 @@ API_ID = 24502638
 API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
 BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
-# Конфигурация S3 и DynamoDB
+# Конфигурация AWS сервисов (S3 и DynamoDB)
 S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
 USER_TABLE = DYNAMODB.Table('my-telegram-users')
 
-# Конфигурация Brevo
-BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
+# Конфигурация Brevo (сервис для отправки email)
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')
 
 if not BREVO_API_KEY:
     logger.error("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
     raise ValueError("BREVO_API_KEY не установлен. Проверьте переменные окружения.")
 
-# Путь к файлу сессии
+# Путь к файлу сессии Telegram
 SESSION_FILE = '/tmp/bot_session.session'
 
-# ID разработчика
+# ID разработчика для отправки уведомлений
 DEVELOPER_ID = 123456789  # Замените на ваш Telegram ID
 
+# Функция для подключения к Telegram API с повторными попытками при ошибках
 async def connect_with_retry(client, max_retries=5):
     for attempt in range(max_retries):
         try:
@@ -55,6 +56,7 @@ async def connect_with_retry(client, max_retries=5):
             logger.info(f"Ожидание {wait_time} секунд перед повторной попыткой...")
             time.sleep(wait_time)
 
+# Функция для инициализации клиента Telegram
 async def initialize_client():
     client = TelegramClient(SESSION_FILE, API_ID, API_HASH)
     if not os.path.exists(SESSION_FILE):
@@ -65,6 +67,7 @@ async def initialize_client():
         await client.start(bot_token=BOT_TOKEN)
     return client
 
+# Функция для сохранения информации о пользователе в DynamoDB
 async def save_user_to_dynamodb(user_id, user_name, message=None):
     current_date = datetime.now().isoformat()
     try:
@@ -85,25 +88,10 @@ async def save_user_to_dynamodb(user_id, user_name, message=None):
             logger.error(f"Ошибка сохранения пользователя в DynamoDB (my-telegram-users): {e}")
         raise
 
-async def broadcast_message(client, message_text):
+# Функция для отправки сообщения пользователю
+async def send_message(client, chat_id, text):
     try:
-        response = USER_TABLE.scan()
-        users = response.get('Items', [])
-        for user in users:
-            user_id = int(user['user_id'])
-            await send_message(client, user_id, message_text)
-            await save_user_to_dynamodb(user_id, user['user_name'])
-        logger.info("Сообщение успешно отправлено всем пользователям")
-    except Exception as e:
-        logger.error(f"Ошибка при отправке сообщения всем пользователям: {e}")
-        raise
-
-async def send_message(client, chat_id, text, buttons=None):
-    try:
-        if buttons:
-            await client.send_message(chat_id, text, buttons=buttons)
-        else:
-            await client.send_message(chat_id, text)
+        await client.send_message(chat_id, text)
         logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
         await save_user_to_dynamodb(chat_id, "")
         await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
@@ -111,13 +99,7 @@ async def send_message(client, chat_id, text, buttons=None):
         logger.error(f"Ошибка отправки сообщения: {e}")
         raise
 
-async def show_typing_animation(client, chat_id, duration=3):
-    try:
-        await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
-        await asyncio.sleep(duration)
-    except Exception as e:
-        logger.error(f"Ошибка при отображении анимации набора текста: {e}")
-
+# Функция для проверки, является ли пользователь администратором канала
 async def verify_channel_admin(client, user_id, channel_name):
     try:
         channel = await client.get_entity(channel_name)
@@ -128,6 +110,7 @@ async def verify_channel_admin(client, user_id, channel_name):
         logger.error(f"Ошибка проверки прав администратора: {e}")
         raise
 
+# Функция для получения списка подписчиков канала
 async def get_subscribers_list(client, channel):
     try:
         channel_entity = await client.get_entity(channel)
@@ -137,6 +120,7 @@ async def get_subscribers_list(client, channel):
         logger.error(f"Ошибка получения списка подписчиков: {e}")
         raise
 
+# Функция для отправки сообщения о подключении канала
 async def send_channel_connected_message(client, chat_id, channel_name, subscriber_count, subscriber_list):
     message = (
         f"Хей-хей! Мы успешно подключили канал и теперь каждый день будем присылать информацию о том, "
@@ -157,6 +141,7 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
         logger.error(f"Ошибка отправки сообщения о подключении канала: {e}")
         raise
 
+# Функция для отправки email через Brevo
 def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
@@ -202,6 +187,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         logger.error(f"Ошибка при отправке email через Brevo: {e}")
         raise
 
+# Функция для сохранения информации о канале в DynamoDB
 def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None, admin_name=None):
     current_date = datetime.now().strftime("%Y-%m-%d")
     try:
@@ -228,16 +214,10 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
             logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
         raise
 
+# Основная функция обработки сообщений
 async def process_message(client, chat_id, text, user_id, user_name):
     await save_user_to_dynamodb(user_id, user_name, text)
-    if text.startswith('/broadcast'):
-        if user_id == 177520168:
-            message_text = text[len('/broadcast '):]
-            await broadcast_message(client, message_text)
-            await send_message(client, chat_id, "Сообщение успешно отправлено всем пользователям.")
-        else:
-            await send_message(client, chat_id, "У вас нет прав для использования этой команды.")
-    elif text == '/start' or text == '/stop':
+    if text == '/start' or text == '/stop':
         if text == '/start':
             welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                                "Чтобы подключить канал, выполните следующие шаги:\n"
@@ -290,6 +270,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
         await save_user_to_dynamodb(user_id, user_name, text)
         await client.send_message(DEVELOPER_ID, f"Новое сообщение от пользователя {user_name} (ID: {user_id}):\n\n{text}")
 
+# Функция для получения информации о канале из DynamoDB
 def get_channel_from_dynamodb(admin_user_id):
     try:
         response = TABLE.query(
@@ -310,6 +291,7 @@ def get_channel_from_dynamodb(admin_user_id):
             logger.error(f"Ошибка получения канала из DynamoDB: {e}")
         return None
 
+# Основная асинхронная функция обработки событий
 async def main(event):
     logger.info("Начало обработки события")
     logger.info(f"Получено событие: {event}")
@@ -357,6 +339,7 @@ async def main(event):
         if 'client' in locals():
             await client.disconnect()
 
+# Функция-обработчик Lambda
 def lambda_handler(event, context):
     logger.info(f"Получено событие Lambda: {event}")
     loop = asyncio.get_event_loop()
