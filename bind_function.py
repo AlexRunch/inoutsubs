@@ -216,18 +216,21 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
 
 # Основная функция обработки сообщений
 async def process_message(client, chat_id, text, user_id, user_name):
+    logger.info(f"Получено сообщение: {text} от пользователя {user_name} (ID: {user_id})")
     await save_user_to_dynamodb(user_id, user_name, text)
-    if text.lower() == '/start' or text.lower() == '/stop':
-        if text.lower() == '/start':
-            welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
-                               "Чтобы подключить канал, выполните следующие шаги:\n"
-                               "1. Добавьте меня в качестве администратора в ваш канал\n"
-                               "2. Напишите мне @username вашего канала\n"
-                               "3. После успешной проверки, напишите свою электронную почту\n\n"
-                               "По всем вопросам обращайтесь к @alex_favin")
-            await send_message(client, chat_id, welcome_message)
-        else:
-            await send_message(client, chat_id, "Бот остановлен. Для возобновления работы используйте /start")
+    
+    if text == '/start':
+        logger.info("Обработка команды /start")
+        welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
+                           "Чтобы подключить канал, выполните следующие шаги:\n"
+                           "1. Добавьте меня в качестве администратора в ваш канал\n"
+                           "2. Напишите мне @username вашего канала\n"
+                           "3. После успешной проверки, напишите свою электронную почту\n\n"
+                           "По всем вопросам обращайтесь к @alex_favin")
+        await send_message(client, chat_id, welcome_message)
+    elif text == '/stop':
+        logger.info("Обработка команды /stop")
+        await send_message(client, chat_id, "Бот остановлен. Для возобновления работы используйте /start")
     elif text.startswith('@'):
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
