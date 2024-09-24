@@ -40,6 +40,9 @@ if not BREVO_API_KEY:
 # Путь к файлу сессии
 SESSION_FILE = '/tmp/bot_session.session'
 
+# ID разработчика
+DEVELOPER_ID = 123456789  # Замените на ваш Telegram ID
+
 async def connect_with_retry(client, max_retries=5):
     for attempt in range(max_retries):
         try:
@@ -228,9 +231,12 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
 async def process_message(client, chat_id, text, user_id, user_name):
     await save_user_to_dynamodb(user_id, user_name, text)
     if text.startswith('/broadcast'):
-        message_text = text[len('/broadcast '):]
-        await broadcast_message(client, message_text)
-        await send_message(client, chat_id, "Сообщение успешно отправлено всем пользователям.")
+        if user_id == 177520168:
+            message_text = text[len('/broadcast '):]
+            await broadcast_message(client, message_text)
+            await send_message(client, chat_id, "Сообщение успешно отправлено всем пользователям.")
+        else:
+            await send_message(client, chat_id, "У вас нет прав для использования этой команды.")
     elif text == '/start' or text == '/stop':
         if text == '/start':
             welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
@@ -280,7 +286,9 @@ async def process_message(client, chat_id, text, user_id, user_name):
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     else:
-        await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
+        await send_message(client, chat_id, "Спасибо, передам это создателю в ближайшее время 🙏")
+        await save_user_to_dynamodb(user_id, user_name, text)
+        await client.send_message(DEVELOPER_ID, f"Новое сообщение от пользователя {user_name} (ID: {user_id}):\n\n{text}")
 
 def get_channel_from_dynamodb(admin_user_id):
     try:
