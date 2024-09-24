@@ -217,8 +217,8 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
 # Основная функция обработки сообщений
 async def process_message(client, chat_id, text, user_id, user_name):
     await save_user_to_dynamodb(user_id, user_name, text)
-    if text == '/start' or text == '/stop':
-        if text == '/start':
+    if text.lower() == '/start' or text.lower() == '/stop':
+        if text.lower() == '/start':
             welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                                "Чтобы подключить канал, выполните следующие шаги:\n"
                                "1. Добавьте меня в качестве администратора в ваш канал\n"
