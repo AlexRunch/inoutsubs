@@ -1,4 +1,3 @@
-import json
 import logging
 import boto3
 import time
@@ -14,7 +13,6 @@ from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
-from boto3.dynamodb.conditions import Key
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO)
@@ -29,7 +27,6 @@ BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
-USER_TABLE = DYNAMODB.Table('my-telegram-users')
 
 # Конфигурация Brevo
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
@@ -189,10 +186,8 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
         raise
 
 async def process_message(client, chat_id, text, user_id, user_name):
-    logger.info(f"Получено сообщение: {text} от пользователя {user_name} (ID: {user_id})")
-    
     try:
-        response = USER_TABLE.get_item(
+        response = TABLE.get_item(
             Key={'user_id': str(user_id)}
         )
         if 'Item' in response:
@@ -205,7 +200,6 @@ async def process_message(client, chat_id, text, user_id, user_name):
         raise
 
     if text == '/start':
-        logger.info("Обработка команды /start")
         welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                            "Чтобы подключить канал, выполните следующие шаги:\n"
                            "1. Добавьте меня в качестве администратора в ваш канал\n"
@@ -230,14 +224,45 @@ async def process_message(client, chat_id, text, user_id, user_name):
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
         await save_user_to_dynamodb(user_id, user_name, text, state='started', admin_username=user_name)
-    elif text == '/stop':
-        logger.info("Обработка команды /stop")
-        await send_message(client, chat_id, "Бот остановлен. Для возобновления работы используйте /start")
-        await save_user_to_dynamodb(user_id, user_name, text, state='stopped', admin_username=user_name)
+    elif text.startswith('@'):
+        channel_name = text
+        is_admin = await verify_channel_admin(client, user_id, channel_name)
+        if is_admin:
+            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+            try:
+                subscribers = await get_subscribers_list(client, channel_name)
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, admin_name=user_name)
+                logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при сохранении данных канала. Пожалуйста, попробуйте еще раз.")
+        else:
+            await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
+    elif '@' in text and '.' in text:  # Простая проверка на email
+        email = text
+        try:
+            channel_name = get_channel_from_dynamodb(user_id)
+            logger.info(f"Получено название канала из DynamoDB для пользователя {user_id}: {channel_name}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении названия канала из DynamoDB для пользователя {user_id}: {str(e)}")
+            channel_name = None
+        
+        if channel_name:
+            try:
+                subscribers = await get_subscribers_list(client, channel_name)
+                logger.info(f"Получен список подписчиков для канала {channel_name}")
+                send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+                logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
+                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
+            except Exception as e:
+                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
+        else:
+            logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
+            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     else:
-        # Обновление времени последнего взаимодействия для других сообщений
-        await save_user_to_dynamodb(user_id, user_name, text, state='active', admin_username=user_name)
-    # ... остальной код ...
+        await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
 def get_channel_from_dynamodb(admin_user_id):
     try:
@@ -307,8 +332,6 @@ def lambda_handler(event, context):
     loop = asyncio.get_event_loop()
     try:
         loop.run_until_complete(main(event))
-        user_count = get_user_count()
-        logger.info(f"Количество пользователей, запустивших бота: {user_count}")
     except Exception as e:
         logger.error(f"Ошибка в lambda_handler: {str(e)}")
         return {
@@ -316,33 +339,3 @@ def lambda_handler(event, context):
             'body': json.dumps({'error': str(e)})
         }
     return {'statusCode': 200, 'body': json.dumps('OK')}
-
-async def save_user_to_dynamodb(user_id, user_name, text, state='', admin_username=''):
-    try:
-        response = USER_TABLE.put_item(
-            Item={
-                'user_id': str(user_id),
-                'user_name': user_name,
-                'last_message': text,
-                'state': state,
-                'admin_username': admin_username,
-                'timestamp': int(time.time()),  # Сохранение текущего времени в секундах
-                'last_interaction': int(time.time())  # Сохранение времени последнего взаимодействия
-            }
-        )
-        logger.info(f"Пользователь {user_name} (ID: {user_id}) сохранен в DynamoDB")
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении пользователя {user_name} (ID: {user_id}) в DynamoDB: {str(e)}")
-        raise
-
-def get_user_count():
-    try:
-        response = USER_TABLE.scan(
-            Select='COUNT'
-        )
-        user_count = response['Count']
-        logger.info(f"Общее количество пользователей, запустивших бота: {user_count}")
-        return user_count
-    except Exception as e:
-        logger.error(f"Ошибка при получении количества пользователей: {str(e)}")
-        raise
