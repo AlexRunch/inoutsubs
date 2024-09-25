@@ -28,6 +28,7 @@ BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
+USERS_TABLE = DYNAMODB.Table('my-telegram-users')  # Таблица для хранения пользователей
 
 # Конфигурация Brevo
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
@@ -38,6 +39,9 @@ if not BREVO_API_KEY:
 
 # Путь к файлу сессии
 SESSION_FILE = '/tmp/bot_session.session'
+
+# ID пользователя, который может отправлять сообщения через broadcast
+BROADCAST_USER_ID = 177520168
 
 async def connect_with_retry(client, max_retries=5):
     for attempt in range(max_retries):
@@ -142,14 +146,14 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     
     send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": admin_email}],
-        sender={"email": "mihailov.org@gmail.com", "name": "Mihailov"},
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
         subject=admin_email_subject,
         text_content=admin_email_body
     )
 
     send_smtp_email_owner = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": "mihailov.org@gmail.com"}],
-        sender={"email": "mihailov.org@gmail.com", "name": "Mihailov"},
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
         subject=owner_email_subject,
         text_content=owner_email_body
     )
@@ -248,7 +252,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
         else:
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
-    elif user_name == 'aamik' and text.startswith('/broadcast '):
+    elif user_id == BROADCAST_USER_ID and text.startswith('/broadcast '):
         broadcast_message = text[len('/broadcast '):]
         await broadcast_message_to_all_users(client, broadcast_message)
         await send_message(client, chat_id, "Сообщение успешно отправлено всем пользователям.")
@@ -273,12 +277,13 @@ def get_channel_from_dynamodb(admin_user_id):
 
 async def broadcast_message_to_all_users(client, message):
     try:
-        response = TABLE.scan()
+        response = USERS_TABLE.scan()
         users = response.get('Items', [])
         for user in users:
-            chat_id = int(user['user_id'])
-            await send_message(client, chat_id, message)
-            await asyncio.sleep(1)  # Добавляем задержку в 1 секунду между отправками сообщений
+            if 'user_id' in user:
+                chat_id = int(user['user_id'])
+                await send_message(client, chat_id, message)
+                await asyncio.sleep(1)  # Добавляем задержку в 1 секунду между отправками сообщений
         logger.info("Сообщение успешно отправлено всем пользователям.")
     except Exception as e:
         logger.error(f"Ошибка при отправке сообщения всем пользователям: {e}")
