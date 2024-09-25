@@ -130,6 +130,10 @@ async def main():
         channels = response['Items']
         logger.info(f"Найдено {len(channels)} каналов для обработки")
         
+        # Логирование данных каналов
+        for channel in channels:
+            logger.info(f"Данные канала: {channel}")
+        
         # Создание задач для обработки каждого канала
         tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
         await asyncio.gather(*tasks)
