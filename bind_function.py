@@ -1,11 +1,11 @@
+import json
 import logging
 import boto3
 import time
 import os
 import asyncio
-import json
 from datetime import datetime
-from telethon import TelegramClient, events, Button, types
+from telethon import TelegramClient, events, Button
 from telethon.tl.types import ChannelParticipantsAdmins
 from telethon.tl.functions.channels import GetParticipantsRequest
 from telethon.errors import FloodWaitError, SessionPasswordNeededError
@@ -40,12 +40,7 @@ if not BREVO_API_KEY:
 # Путь к файлу сессии
 SESSION_FILE = '/tmp/bot_session.session'
 
-# ID пользователя, который может отправлять сообщения через broadcast
-BROADCAST_USER_ID = 177520168
-
-MAX_RETRIES = 3
-
-async def connect_with_retry(client, max_retries=MAX_RETRIES):
+async def connect_with_retry(client, max_retries=5):
     for attempt in range(max_retries):
         try:
             await client.connect()
@@ -86,20 +81,15 @@ async def show_typing_animation(client, chat_id, duration=3):
     except Exception as e:
         logger.error(f"Ошибка при отображении анимации набора текста: {e}")
 
-async def is_user_admin(client, chat_id, user_id):
+async def verify_channel_admin(client, user_id, channel_name):
     try:
-        logger.info(f"Проверка прав администратора для пользователя {user_id} в чате {chat_id}")
-        chat = await client.get_entity(chat_id)
-        if isinstance(chat, types.User):
-            logger.warning(f"Чат {chat_id} является личной перепиской, а не каналом или группой")
-            return False
+        channel = await client.get_entity(channel_name)
         admins = await client(GetParticipantsRequest(
-            chat, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0
-        ))
-        return any(admin.id == user_id for admin in admins.participants)
+            channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
+        return any(admin.id == user_id for admin in admins.users)
     except Exception as e:
-        logger.error(f"Ошибка проверки прав администратора: {str(e)}")
-        return False
+        logger.error(f"Ошибка проверки прав администратора: {e}")
+        raise
 
 async def get_subscribers_list(client, channel):
     try:
@@ -134,106 +124,133 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
-    subject = f"Информация о канале {channel_name}"
-    html_content = f"<html><body><h1>Информация о канале {channel_name}</h1><p>Количество подписчиков: {subscriber_count}</p><pre>{subscriber_list}</pre></body></html>"
-    sender = {"name": "Your Bot", "email": "your-email@example.com"}
-    to = [{"email": admin_email}]
-    reply_to = {"email": "your-email@example.com"}
-    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(to=to, sender=sender, subject=subject, html_content=html_content, reply_to=reply_to)
 
-    try:
-        api_response = api_instance.send_transac_email(send_smtp_email)
-        logger.info(f"Email успешно отправлен на адрес {admin_email}")
-        logger.info(f"API Response: {api_response}")
-    except ApiException as e:
-        logger.error(f"Ошибка при отправке email на адрес {admin_email}: {e}")
-
-def save_channel_to_dynamodb(channel_name, admin_user_id, subscribers, email, admin_name):
-    try:
-        date = datetime.now().strftime("%Y-%m-%d")
-        item = {
-            'channel_id': channel_name,
-            'date': date,
-            'admin_user_id': str(admin_user_id),
-            'admin_name': admin_name,
-            'email': email,
-            'subscribers': json.dumps(subscribers, ensure_ascii=False),
-            'new_subscribers': json.dumps([]),
-            'unsubscribed': json.dumps([]),
-            'total_subs': len(subscribers),
-            'last_update': date
-        }
-        TABLE.put_item(Item=item)
-        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB: {e}")
-
-async def handle_start_command(client, chat_id, user_id, user_name):
-    welcome_message = (
-        "Привет! Я бот для отслеживания подписчиков в Telegram-каналах. "
-        "Чтобы начать, используйте команду /bind для привязки канала."
+    admin_email_subject = f'Подключение канала {channel_name}'
+    admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
+                        f'Количество подписчиков: {subscriber_count}\n'
+                        f'Список подписчиков:\n')
+    
+    subscriber_dict = json.loads(subscriber_list)
+    for user_id, user_info in subscriber_dict.items():
+        name, subscriber_username = user_info.split(' (@')
+        subscriber_username = subscriber_username.rstrip(')')
+        admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
+    
+    owner_email_subject = f'Подключен новый канал {channel_name}'
+    owner_email_body = (f'Название канала: {channel_name}\n'
+                        f'Админ, который его подключил: @{admin_email}\n'
+                        f'Количество подписчиков канала: {subscriber_count}')
+    
+    send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": admin_email}],
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        subject=admin_email_subject,
+        text_content=admin_email_body
     )
-    await send_message(client, chat_id, welcome_message)
-    logger.info(f"Отправлено приветственное сообщение пользователю {user_id}")
 
-async def handle_bind_command(client, chat_id, user_id, text):
-    # Извлекаем имя канала из команды
-    channel_name = text.split(' ', 1)[1] if len(text.split(' ')) > 1 else None
-    if not channel_name:
-        await send_message(client, chat_id, "Пожалуйста, укажите имя канала после команды /bind")
-        return
+    send_smtp_email_owner = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": "mihailov.org@gmail.com"}],
+        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        subject=owner_email_subject,
+        text_content=owner_email_body
+    )
 
     try:
-        # Проверяем, является ли пользователь администратором канала
-        channel = await client.get_entity(channel_name)
-        is_admin = await is_user_admin(client, channel, user_id)
-        
-        if not is_admin:
-            await send_message(client, chat_id, "Вы должны быть администратором канала для его привязки.")
-            return
+        api_response_admin = api_instance.send_transac_email(send_smtp_email_admin)
+        api_response_owner = api_instance.send_transac_email(send_smtp_email_owner)
+        logger.info(f"Email успешно отправлен на адрес {admin_email} и mihailov.org@gmail.com")
+        logger.info(f"API Response Admin: {api_response_admin}")
+        logger.info(f"API Response Owner: {api_response_owner}")
+    except ApiException as e:
+        logger.error(f"Ошибка при отправке email через Brevo: {e}")
+        raise
 
-        # Получаем список подписчиков
-        subscribers = await get_subscribers_list(client, channel)
-        
-        # Сохраняем информацию о канале в DynamoDB
-        admin_info = await client.get_entity(user_id)
-        admin_name = f"{admin_info.first_name} {admin_info.last_name}" if admin_info.last_name else admin_info.first_name
-        save_channel_to_dynamodb(channel_name, user_id, subscribers, "admin@example.com", admin_name)
-
-        # Отправляем сообщение о успешной привязке
-        await send_channel_connected_message(client, chat_id, channel_name, len(subscribers), subscribers)
-
-    except Exception as e:
-        logger.error(f"Ошибка при обработке команды /bind: {e}")
-        await send_message(client, chat_id, f"Произошла ошибка при привязке канала: {str(e)}")
-
-async def handle_broadcast_command(client, text):
-    # Извлекаем сообщение для рассылки
-    broadcast_message = text.split(' ', 1)[1] if len(text.split(' ')) > 1 else None
-    if not broadcast_message:
-        logger.error("Сообщение для рассылки не указано")
-        return
-
+def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None, admin_name=None):
+    current_date = datetime.now().strftime("%Y-%m-%d")
     try:
-        await broadcast_message_to_all_users(client, broadcast_message)
+        item = {
+            'channel_id': channel_id,
+            'date': current_date,
+            'admin_user_id': str(admin_user_id),
+            'subscribers': subscribers,
+            'new_subscribers': [],
+            'unsubscribed': [],
+            'total_subs': len(subscribers),
+            'admin_name': admin_name
+        }
+        if email:
+            item['email'] = email
+        TABLE.put_item(Item=item)
+        logger.info(f"Канал {channel_id} успешно сохранен в DynamoDB")
+        time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
     except Exception as e:
-        logger.error(f"Ошибка при выполнении рассылки: {e}")
+        logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
+        raise
 
 async def process_message(client, chat_id, text, user_id, user_name):
-    logger.info(f"Обработка сообщения: chat_id={chat_id}, user_id={user_id}, text={text}")
-    
-    if text.startswith('/start'):
-        await handle_start_command(client, chat_id, user_id, user_name)
-    elif text.startswith('/bind'):
-        is_admin = await is_user_admin(client, chat_id, user_id)
+    if text == '/start':
+        welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
+                           "Чтобы подключить канал, выполните следующие шаги:\n"
+                           "1. Добавьте меня в качестве администратора в ваш канал\n"
+                           "2. Напишите мне @username вашего канала\n"
+                           "3. После успешной проверки, напишите свою электронную почту\n\n"
+                           "Инструкция по добавлению бота в канал:\n\n"
+                           "Вариант №1. Через настройки канала:\n"
+                           "1. Зайдите в настройки вашего канала.\n"
+                           "2. Перейдите в раздел Администраторы.\n"
+                           "3. Нажмите Добавить администратора.\n"
+                           "4. В поле поиска введите название бота: @mysubsinoutbot.\n"
+                           "5. Для безопасности можете отключить все разрешения для этого администратора.\n"
+                           "6. Нажмите Готово для завершения.\n\n"
+                           "Вариант №2. Через интерфейс бота:\n"
+                           "1. Откройте чат с ботом @mysubsinoutbot.\n"
+                           "2. Нажмите на имя бота в верхней части экрана.\n"
+                           "3. На открывшейся странице с информацией о боте выберите опцию Добавить в группу или канал.\n"
+                           "4. Выберите название своего канала из списка.\n"
+                           "5. Убедитесь, что включены права администратора.\n"
+                           "6. Подтвердите добавление бота.\n\n"
+                           "Следуя этой инструкции, вы успешно добавите бота в свой канал!\n\n"
+                           "По всем вопросам обращайтесь к @alex_favin")
+        await send_message(client, chat_id, welcome_message)
+    elif text.startswith('@'):
+        channel_name = text
+        is_admin = await verify_channel_admin(client, user_id, channel_name)
         if is_admin:
-            await handle_bind_command(client, chat_id, user_id, text)
+            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+            try:
+                subscribers = await get_subscribers_list(client, channel_name)
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, admin_name=user_name)
+                logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
+            except Exception as e:
+                logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при сохранении данных канала. Пожалуйста, попробуйте еще раз.")
         else:
-            await client.send_message(chat_id, "У вас нет прав администратора для выполнения этой команды.")
-    elif text.startswith('/broadcast') and user_id == BROADCAST_USER_ID:
-        await handle_broadcast_command(client, text)
+            await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
+    elif '@' in text and '.' in text:  # Простая проверка на email
+        email = text
+        try:
+            channel_name = get_channel_from_dynamodb(user_id)
+            logger.info(f"Получено название канала из DynamoDB для пользователя {user_id}: {channel_name}")
+        except Exception as e:
+            logger.error(f"Ошибка при получении названия канала из DynamoDB для пользователя {user_id}: {str(e)}")
+            channel_name = None
+        
+        if channel_name:
+            try:
+                subscribers = await get_subscribers_list(client, channel_name)
+                logger.info(f"Получен список подписчиков для канала {channel_name}")
+                send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+                logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
+                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+                save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
+            except Exception as e:
+                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
+                await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
+        else:
+            logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
+            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     else:
-        await client.send_message(chat_id, "Неизвестная команда. Пожалуйста, используйте /start для начала работы.")
+        await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
 def get_channel_from_dynamodb(admin_user_id):
     try:
