@@ -165,7 +165,7 @@ def save_channel_to_dynamodb(channel_name, admin_user_id, subscribers, email, ad
 
 async def process_message(client, chat_id, text, user_id, user_name):
     if text == '/start':
-        welcome_message = ("Привет! Я бот, который поможет тебе отслеживать подписчиков твоего канала.\n\n"
+        welcome_message = ("Привет! Я бот, который поможет тебе отслеживать подписчиков твоих каналов.\n\n"
                            "Для начала добавь меня в администраторы своего канала и отправь мне его @username.\n\n"
                            "Инструкция:\n"
                            "1. Перейдите в настройки вашего канала.\n"
@@ -175,6 +175,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
                            "5. Выберите меня и предоставьте необходимые права.\n"
                            "6. Подтвердите добавление бота.\n\n"
                            "Следуя этой инструкции, вы успешно добавите бота в свой канал!\n\n"
+                           "Чтобы добавить еще один канал, просто отправьте мне его @username.\n\n"
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
     elif text.startswith('@'):
@@ -187,25 +188,27 @@ async def process_message(client, chat_id, text, user_id, user_name):
     elif '@' in text and '.' in text:  # Простая проверка на email
         email = text
         try:
-            channel_name = get_channel_from_dynamodb(user_id)
-            logger.info(f"Получено название канала из DynamoDB для пользователя {user_id}: {channel_name}")
+            channels = get_channels_from_dynamodb(user_id)
+            logger.info(f"Получены каналы из DynamoDB для пользователя {user_id}: {channels}")
         except Exception as e:
-            logger.error(f"Ошибка при получении названия канала из DynamoDB для пользователя {user_id}: {str(e)}")
-            channel_name = None
+            logger.error(f"Ошибка при получении каналов из DynamoDB для пользователя {user_id}: {str(e)}")
+            channels = []
         
-        if channel_name:
-            try:
-                subscribers = await get_subscribers_list(client, channel_name)
-                logger.info(f"Получен список подписчиков для канала {channel_name}")
-                send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
-                logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
-                await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
-                save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
-            except Exception as e:
-                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
-                await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
+        if channels:
+            for channel_name in channels:
+                try:
+                    subscribers = await get_subscribers_list(client, channel_name)
+                    logger.info(f"Получен список подписчиков для канала {channel_name}")
+                    send_email(channel_name, email, len(subscribers), json.dumps(subscribers, ensure_ascii=False, indent=2))
+                    logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
+                    await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
+                    save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
+                except Exception as e:
+                    logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
+                    await send_message(client, chat_id, f"Произошла ошибка при обработке канала {channel_name}. Пожалуйста, попробуйте еще раз.")
+            await send_message(client, chat_id, "Все каналы успешно обработаны. Если хотите добавить еще один канал, просто отправьте мне его @username.")
         else:
-            logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
+            logger.warning(f"Не удалось найти каналы в DynamoDB для пользователя {user_id}")
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
     elif user_id == BROADCAST_USER_ID and text.startswith('/broadcast '):
         broadcast_message = text[len('/broadcast '):]
@@ -214,21 +217,18 @@ async def process_message(client, chat_id, text, user_id, user_name):
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
-def get_channel_from_dynamodb(admin_user_id):
+def get_channels_from_dynamodb(admin_user_id):
     try:
         response = TABLE.query(
             IndexName='AdminUserIndex',
             KeyConditionExpression='admin_user_id = :admin_id',
-            ExpressionAttributeValues={':admin_id': str(admin_user_id)},
-            Limit=1
+            ExpressionAttributeValues={':admin_id': str(admin_user_id)}
         )
         items = response.get('Items', [])
-        if items:
-            return items[0]['channel_id']
-        return None
+        return [item['channel_id'] for item in items]
     except Exception as e:
-        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
-        return None
+        logger.error(f"Ошибка получения каналов из DynamoDB: {e}")
+        return []
 
 async def broadcast_message_to_all_users(client, message):
     try:
