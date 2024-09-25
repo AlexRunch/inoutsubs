@@ -3,7 +3,7 @@ import boto3
 import time
 import os
 import asyncio
-import json  # Добавляем импорт модуля json
+import json
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import ChannelParticipantsAdmins
