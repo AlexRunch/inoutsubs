@@ -3,6 +3,7 @@ import boto3
 import time
 import os
 import asyncio
+import json  # Добавляем импорт модуля json
 from datetime import datetime
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import ChannelParticipantsAdmins
@@ -186,19 +187,6 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
         raise
 
 async def process_message(client, chat_id, text, user_id, user_name):
-    try:
-        response = TABLE.get_item(
-            Key={'user_id': str(user_id)}
-        )
-        if 'Item' in response:
-            last_message = response['Item'].get('last_message', '')
-            if last_message == text:
-                logger.info(f"Пользователь {user_name} (ID: {user_id}) уже получил это сообщение: {text}")
-                return
-    except Exception as e:
-        logger.error(f"Ошибка при получении последнего сообщения пользователя {user_id} из DynamoDB: {str(e)}")
-        raise
-
     if text == '/start':
         welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                            "Чтобы подключить канал, выполните следующие шаги:\n"
@@ -223,7 +211,6 @@ async def process_message(client, chat_id, text, user_id, user_name):
                            "Следуя этой инструкции, вы успешно добавите бота в свой канал!\n\n"
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
-        await save_user_to_dynamodb(user_id, user_name, text, state='started', admin_username=user_name)
     elif text.startswith('@'):
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
