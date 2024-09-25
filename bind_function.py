@@ -232,8 +232,8 @@ async def process_message(client, chat_id, text, user_id, user_name):
     elif '@' in text and '.' in text:  # Простая проверка на email
         email = text
         try:
-            channel_name = get_channel_from_dynamodb(user_id)
-            logger.info(f"Получено название канала из DynamoDB для пользователя {user_id}: {channel_name}")
+            channel_name = get_last_channel_from_dynamodb(user_id)
+            logger.info(f"Получено название последнего добавленного канала из DynamoDB для пользователя {user_id}: {channel_name}")
         except Exception as e:
             logger.error(f"Ошибка при получении названия канала из DynamoDB для пользователя {user_id}: {str(e)}")
             channel_name = None
@@ -256,12 +256,13 @@ async def process_message(client, chat_id, text, user_id, user_name):
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
-def get_channel_from_dynamodb(admin_user_id):
+def get_last_channel_from_dynamodb(admin_user_id):
     try:
         response = TABLE.query(
             IndexName='AdminUserIndex',
             KeyConditionExpression='admin_user_id = :admin_id',
             ExpressionAttributeValues={':admin_id': str(admin_user_id)},
+            ScanIndexForward=False,
             Limit=1
         )
         items = response.get('Items', [])
@@ -269,7 +270,7 @@ def get_channel_from_dynamodb(admin_user_id):
             return items[0]['channel_id']
         return None
     except Exception as e:
-        logger.error(f"Ошибка получения канала из DynamoDB: {e}")
+        logger.error(f"Ошибка получения последнего канала из DynamoDB: {e}")
         return None
 
 async def broadcast_message_to_all_users(client, message):
