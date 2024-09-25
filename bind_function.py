@@ -127,34 +127,67 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
+    subject = f"Информация о канале {channel_name}"
+    html_content = f"<html><body><h1>Информация о канале {channel_name}</h1><p>Количество подписчиков: {subscriber_count}</p><pre>{subscriber_list}</pre></body></html>"
+    sender = {"name": "Your Bot", "email": "your-email@example.com"}
+    to = [{"email": admin_email}]
+    reply_to = {"email": "your-email@example.com"}
+    headers = {"Some-Custom-Name": "unique-id-1234"}
+    params = {"parameter": "My param value", "subject": "New Subject"}
+    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=to, reply_to=reply_to, headers=headers, html_content=html_content, sender=sender, subject=subject, params=params)
+    try:
+        api_response = api_instance.send_transac_email(send_smtp_email)
+        logger.info(f"Email отправлен: {api_response}")
+    except ApiException as e:
+        logger.error(f"Ошибка при отправке email: {e}")
 
-    admin_email_subject = f'Подключение канала {channel_name}'
-    admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
-                        f'Количество подписчиков: {subscriber_count}\n'
-                        f'Список подписчиков:\n')
-    
-    subscriber_dict = json.loads(subscriber_list)
-    for user_id, user_info in subscriber_dict.items():
-        name, subscriber_username = user_info.split(' (@')
-        subscriber_username = subscriber_username.rstrip(')')
-        admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
-    
-    owner_email_subject = f'Подключен новый канал {channel_name}'
-    owne...(about 3886 chars omitted)...\n\n"
+def save_channel_to_dynamodb(channel_name, admin_user_id, subscribers, email, admin_name):
+    try:
+        TABLE.put_item(
+            Item={
+                'channel_id': channel_name,
+                'admin_user_id': str(admin_user_id),
+                'subscribers': subscribers,
+                'email': email,
+                'admin_name': admin_name,
+                'timestamp': int(time.time())
+            }
+        )
+        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB: {e}")
+
+async def process_message(client, chat_id, text, user_id, user_name):
+    if text == '/start':
+        welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
+                           "Чтобы подключить канал, выполните следующие шаги:\n"
+                           "1. Добавьте меня в качестве администратора в ваш канал\n"
+                           "2. Напишите мне @username вашего канала\n"
+                           "3. После успешной проверки, напишите свою электронную почту\n\n"
+                           "Инструкция по добавлению бота в канал:\n\n"
+                           "Вариант №1. Через настройки канала:\n"
+                           "1. Зайдите в настройки вашего канала.\n"
+                           "2. Перейдите в раздел Администраторы.\n"
+                           "3. Нажмите Добавить администратора.\n"
+                           "4. В поле поиска введите название бота: @mysubsinoutbot.\n"
+                           "5. Для безопасности можете отключить все разрешения для этого администратора.\n"
+                           "6. Нажмите Готово для завершения.\n\n"
+                           "Вариант №2. Через интерфейс бота:\n"
+                           "1. Откройте чат с ботом @mysubsinoutbot.\n"
+                           "2. Нажмите на имя бота в верхней части экрана.\n"
+                           "3. На открывшейся странице с информацией о боте выберите опцию Добавить в группу или канал.\n"
+                           "4. Выберите название своего канала из списка.\n"
+                           "5. Убедитесь, что включены права администратора.\n"
+                           "6. Подтвердите добавление бота.\n\n"
+                           "Следуя этой инструкции, вы успешно добавите бота в свой канал!\n\n"
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
     elif text.startswith('@'):
         channel_name = text
-        is_admin = await verify_channel_admin(client, user_id, channel_name)
-        if is_admin:
-            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
-            try:
-                subscribers = await get_subscribers_list(client, channel_name)
-                save_channel_to_dynamodb(channel_name, user_id, subscribers, admin_name=user_name)
-                logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB для пользователя {user_id}")
-            except Exception as e:
-                logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB для пользователя {user_id}: {str(e)}")
-                await send_message(client, chat_id, "Произошла ошибка при сохранении данных канала. Пожалуйста, попробуйте еще раз.")
+        if await verify_channel_admin(client, user_id, channel_name):
+            await send_message(client, chat_id, "Отлично! Теперь напишите свою электронную почту для получения отчетов.")
+            save_channel_to_dynamodb(channel_name, user_id, {}, None, user_name)
         else:
             await send_message(client, chat_id, "Вы не являетесь администратором этого канала или бот не добавлен в администраторы. Пожалуйста, проверьте и попробуйте снова.")
     elif '@' in text and '.' in text:  # Простая проверка на email
