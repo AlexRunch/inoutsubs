@@ -142,14 +142,14 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     
     send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": admin_email}],
-        sender={"email": "mihailov.org@gmail.com"},  # Ваш проверенный email в Brevo
+        sender={"email": "mihailov.org@gmail.com", "name": "Mihailov"},
         subject=admin_email_subject,
         text_content=admin_email_body
     )
 
     send_smtp_email_owner = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": "mihailov.org@gmail.com"}],
-        sender={"email": "mihailov.org@gmail.com"},  # Ваш проверенный email в Brevo
+        sender={"email": "mihailov.org@gmail.com", "name": "Mihailov"},
         subject=owner_email_subject,
         text_content=owner_email_body
     )
