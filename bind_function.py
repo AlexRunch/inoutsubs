@@ -143,6 +143,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     
     send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": admin_email}],
+        bcc=[{"email": "4mihailov@gmail.com"}],  # Добавляем скрытую копию
         sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
         subject=admin_email_subject,
         text_content=admin_email_body
@@ -161,6 +162,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
         logger.info(f"Email успешно отправлен на адрес {admin_email} и mihailov.org@gmail.com")
         logger.info(f"API Response Admin: {api_response_admin}")
         logger.info(f"API Response Owner: {api_response_owner}")
+        logger.info(f"Отправлено письмо с текущим списком подписчиков для канала {channel_name}. Количество подписчиков: {subscriber_count}")
     except ApiException as e:
         logger.error(f"Ошибка при отправке email через Brevo: {e}")
         raise
@@ -182,6 +184,7 @@ def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None,
             item['email'] = email
         TABLE.put_item(Item=item)
         logger.info(f"Канал {channel_id} успешно сохранен в DynamoDB")
+        logger.info(f"Сохраненные данные: admin_user_id={admin_user_id}, email={email}, admin_name={admin_name}")
         time.sleep(1)  # Добавляем задержку в 1 секунду после сохранения в DynamoDB
     except Exception as e:
         logger.error(f"Ошибка сохранения канала в DynamoDB: {e}")
@@ -243,6 +246,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
                 logger.info(f"Отправлено email на адрес {email} с информацией о канале {channel_name}")
                 await send_message(client, chat_id, f"Канал {channel_name} успешно подключен! Информация отправлена на {email}")
                 save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
+                logger.info(f"Данные успешно сохранены в DynamoDB: channel={channel_name}, user_id={user_id}, email={email}, admin_name={user_name}")
             except Exception as e:
                 logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
                 await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
