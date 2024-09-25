@@ -90,20 +90,21 @@ async def process_channel(client, channel_data):
         # Формирование тела письма
         if new_subscribers or unsubscribed:
             email_subject = f'Обновления по подписчикам канала {channel_name}'
-            email_body = "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + \
-                         "\nОтписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
+            email_body = f"Обновления для канала {channel_name}:\n\n"
+            email_body += "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + "\n\n"
+            email_body += "Отписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
         else:
             email_subject = f'Статус подписчиков канала {channel_name}'
-            email_body = "Статус подписчиков - без изменений"
+            email_body = f"Статус подписчиков канала {channel_name} - без изменений"
         
         # Логирование отправляемого письма
         logger.info(f"Отправка email на адрес {admin_email} с темой '{email_subject}' и телом:\n{email_body}")
         
-        # Логирование адреса электронной почты
-        logger.info(f"Адрес электронной почты для отправки: {admin_email}")
-        
         # Отправка email
         send_email(email_subject, email_body, admin_email)
+        
+        # Логирование успешной отправки
+        logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {admin_email}")
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
@@ -111,7 +112,7 @@ async def process_channel(client, channel_data):
             UpdateExpression="set subscribers = :s, last_update = :u",
             ExpressionAttributeValues={
                 ':s': json.dumps(current_subscribers, ensure_ascii=False),
-                ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%С")
+                ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
         )
         logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
