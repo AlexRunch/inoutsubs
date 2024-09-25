@@ -248,6 +248,10 @@ async def process_message(client, chat_id, text, user_id, user_name):
         else:
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
             await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
+    elif user_name == 'aamik' and text.startswith('/broadcast '):
+        broadcast_message = text[len('/broadcast '):]
+        await broadcast_message_to_all_users(client, broadcast_message)
+        await send_message(client, chat_id, "Сообщение успешно отправлено всем пользователям.")
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
@@ -266,6 +270,19 @@ def get_channel_from_dynamodb(admin_user_id):
     except Exception as e:
         logger.error(f"Ошибка получения канала из DynamoDB: {e}")
         return None
+
+async def broadcast_message_to_all_users(client, message):
+    try:
+        response = TABLE.scan()
+        users = response.get('Items', [])
+        for user in users:
+            chat_id = int(user['user_id'])
+            await send_message(client, chat_id, message)
+            await asyncio.sleep(1)  # Добавляем задержку в 1 секунду между отправками сообщений
+        logger.info("Сообщение успешно отправлено всем пользователям.")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке сообщения всем пользователям: {e}")
+        raise
 
 async def main(event):
     logger.info("Начало обработки события")
