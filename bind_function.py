@@ -216,10 +216,11 @@ async def process_message(client, chat_id, text, user_id, user_name):
                            "Следуя этой инструкции, вы успешно добавите бота в свой канал!\n\n"
                            "По всем вопросам обращайтесь к @alex_favin")
         await send_message(client, chat_id, welcome_message)
-        await save_user_to_dynamodb(user_id, user_name, text)
+        await save_user_to_dynamodb(user_id, user_name, text, state='started', admin_username=user_name)
     elif text == '/stop':
         logger.info("Обработка команды /stop")
         await send_message(client, chat_id, "Бот остановлен. Для возобновления работы используйте /start")
+        await save_user_to_dynamodb(user_id, user_name, text, state='stopped', admin_username=user_name)
     elif text.startswith('@'):
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
@@ -338,13 +339,15 @@ def lambda_handler(event, context):
         }
     return {'statusCode': 200, 'body': json.dumps('OK')}
 
-async def save_user_to_dynamodb(user_id, user_name, text):
+async def save_user_to_dynamodb(user_id, user_name, text, state='', admin_username=''):
     try:
         response = USER_TABLE.put_item(
             Item={
                 'user_id': str(user_id),
                 'user_name': user_name,
                 'last_message': text,
+                'state': state,
+                'admin_username': admin_username,
                 'timestamp': int(time.time())
             }
         )
