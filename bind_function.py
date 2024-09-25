@@ -29,7 +29,7 @@ BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 S3_CLIENT = boto3.client('s3')
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
-USER_TABLE = DYNAMODB.Table('telegram-users')
+USER_TABLE = DYNAMODB.Table('my-telegram-users')
 
 # Конфигурация Brevo
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
