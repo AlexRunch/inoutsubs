@@ -65,6 +65,9 @@ async def process_channel(client, channel_data):
         date = channel_data['date']
         admin_email = channel_data.get('email')
         
+        # Логирование данных канала
+        logger.info(f"Обработка канала: {channel_name}, дата: {date}, email: {admin_email}")
+        
         if not admin_email or admin_email == 'no_email_provided@example.com':
             logger.error(f"Адрес электронной почты администратора не указан для канала {channel_name}")
             return
