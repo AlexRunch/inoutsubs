@@ -43,7 +43,9 @@ SESSION_FILE = '/tmp/bot_session.session'
 # ID пользователя, который может отправлять сообщения через broadcast
 BROADCAST_USER_ID = 177520168
 
-async def connect_with_retry(client, max_retries=5):
+MAX_RETRIES = 3
+
+async def connect_with_retry(client, max_retries=MAX_RETRIES):
     for attempt in range(max_retries):
         try:
             await client.connect()
@@ -66,42 +68,57 @@ async def initialize_client():
     return client
 
 async def send_message(client, chat_id, text, buttons=None):
-    try:
-        if buttons:
-            await client.send_message(chat_id, text, buttons=buttons)
-        else:
-            await client.send_message(chat_id, text)
-        logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
-        await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
-    except Exception as e:
-        logger.error(f"Ошибка отправки сообщения: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            if buttons:
+                await client.send_message(chat_id, text, buttons=buttons)
+            else:
+                await client.send_message(chat_id, text)
+            logger.info(f"Сообщение отправлено успешно в чат {chat_id}")
+            await asyncio.sleep(1)  # Добавляем задержку в 1 секунду после отправки сообщения
+            return
+        except Exception as e:
+            logger.error(f"Ошибка отправки сообщения (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                await client.send_message(chat_id, "Произошла ошибка при отправке сообщения. Пожалуйста, попробуйте позже.")
+                raise
 
 async def show_typing_animation(client, chat_id, duration=3):
-    try:
-        await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
-        await asyncio.sleep(duration)
-    except Exception as e:
-        logger.error(f"Ошибка при отображении анимации набора текста: {e}")
+    for attempt in range(MAX_RETRIES):
+        try:
+            await client(SetTypingRequest(peer=chat_id, action=SendMessageTypingAction()))
+            await asyncio.sleep(duration)
+            return
+        except Exception as e:
+            logger.error(f"Ошибка при отображении анимации набора текста (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                await send_message(client, chat_id, "Произошла ошибка при отображении анимации. Пожалуйста, попробуйте позже.")
+                raise
 
 async def verify_channel_admin(client, user_id, channel_name):
-    try:
-        channel = await client.get_entity(channel_name)
-        admins = await client(GetParticipantsRequest(
-            channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
-        return any(admin.id == user_id for admin in admins.users)
-    except Exception as e:
-        logger.error(f"Ошибка проверки прав администратора: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            channel = await client.get_entity(channel_name)
+            admins = await client(GetParticipantsRequest(
+                channel, filter=ChannelParticipantsAdmins(), offset=0, limit=100, hash=0))
+            return any(admin.id == user_id for admin in admins.users)
+        except Exception as e:
+            logger.error(f"Ошибка проверки прав администратора (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                await send_message(client, user_id, "Произошла ошибка при проверке прав администратора. Пожалуйста, попробуйте позже.")
+                raise
 
 async def get_subscribers_list(client, channel):
-    try:
-        channel_entity = await client.get_entity(channel)
-        participants = await client.get_participants(channel_entity)
-        return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
-    except Exception as e:
-        logger.error(f"Ошибка получения списка подписчиков: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            channel_entity = await client.get_entity(channel)
+            participants = await client.get_participants(channel_entity)
+            return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
+        except Exception as e:
+            logger.error(f"Ошибка получения списка подписчиков (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                await send_message(client, channel, "Произошла ошибка при получении списка подписчиков. Пожалуйста, попробуйте позже.")
+                raise
 
 async def send_channel_connected_message(client, chat_id, channel_name, subscriber_count, subscriber_list):
     message = (
@@ -116,12 +133,16 @@ async def send_channel_connected_message(client, chat_id, channel_name, subscrib
         subscriber_username = subscriber_username.rstrip(')')
         message += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
     
-    try:
-        await send_message(client, chat_id, message)
-        logger.info(f"Сообщение о подключении канала успешно отправлено в чат {chat_id}")
-    except Exception as e:
-        logger.error(f"Ошибка отправки сообщения о подключении канала: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            await send_message(client, chat_id, message)
+            logger.info(f"Сообщение о подключении канала успешно отправлено в чат {chat_id}")
+            return
+        except Exception as e:
+            logger.error(f"Ошибка отправки сообщения о подключении канала (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                await send_message(client, chat_id, "Произошла ошибка при отправке сообщения о подключении канала. Пожалуйста, попробуйте позже.")
+                raise
 
 def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     configuration = sib_api_v3_sdk.Configuration()
@@ -134,34 +155,40 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     reply_to = {"email": "your-email@example.com"}
     send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(to=to, sender=sender, subject=subject, html_content=html_content, reply_to=reply_to)
 
-    try:
-        api_response = api_instance.send_transac_email(send_smtp_email)
-        logger.info(f"Email успешно отправлен на адрес {admin_email}")
-        logger.info(f"API Response: {api_response}")
-    except ApiException as e:
-        logger.error(f"Ошибка при отправке email на адрес {admin_email}: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            api_response = api_instance.send_transac_email(send_smtp_email)
+            logger.info(f"Email успешно отправлен на адрес {admin_email}")
+            logger.info(f"API Response: {api_response}")
+            return
+        except ApiException as e:
+            logger.error(f"Ошибка при отправке email на адрес {admin_email} (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                raise
 
 def save_channel_to_dynamodb(channel_name, admin_user_id, subscribers, email, admin_name):
-    try:
-        date = datetime.now().strftime("%Y-%m-%d")
-        item = {
-            'channel_id': channel_name,
-            'date': date,
-            'admin_user_id': str(admin_user_id),
-            'email': email,
-            'admin_name': admin_name,
-            'last_update': date,
-            'new_subscribers': json.dumps([]),
-            'subscribers': json.dumps(subscribers),
-            'total_subs': len(subscribers),
-            'unsubscribed': json.dumps([])
-        }
-        TABLE.put_item(Item=item)
-        logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB: {e}")
-        raise
+    for attempt in range(MAX_RETRIES):
+        try:
+            date = datetime.now().strftime("%Y-%m-%d")
+            item = {
+                'channel_id': channel_name,
+                'date': date,
+                'admin_user_id': str(admin_user_id),
+                'email': email,
+                'admin_name': admin_name,
+                'last_update': date,
+                'new_subscribers': json.dumps([]),
+                'subscribers': json.dumps(subscribers),
+                'total_subs': len(subscribers),
+                'unsubscribed': json.dumps([])
+            }
+            TABLE.put_item(Item=item)
+            logger.info(f"Канал {channel_name} успешно сохранен в DynamoDB")
+            return
+        except Exception as e:
+            logger.error(f"Ошибка при сохранении канала {channel_name} в DynamoDB (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                raise
 
 async def process_message(client, chat_id, text, user_id, user_name):
     if text == '/start':
@@ -218,17 +245,19 @@ async def process_message(client, chat_id, text, user_id, user_name):
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
 def get_channels_from_dynamodb(admin_user_id):
-    try:
-        response = TABLE.query(
-            IndexName='AdminUserIndex',
-            KeyConditionExpression='admin_user_id = :admin_id',
-            ExpressionAttributeValues={':admin_id': str(admin_user_id)}
-        )
-        items = response.get('Items', [])
-        return [item['channel_id'] for item in items]
-    except Exception as e:
-        logger.error(f"Ошибка получения каналов из DynamoDB: {e}")
-        return []
+    for attempt in range(MAX_RETRIES):
+        try:
+            response = TABLE.query(
+                IndexName='AdminUserIndex',
+                KeyConditionExpression='admin_user_id = :admin_id',
+                ExpressionAttributeValues={':admin_id': str(admin_user_id)}
+            )
+            items = response.get('Items', [])
+            return [item['channel_id'] for item in items]
+        except Exception as e:
+            logger.error(f"Ошибка получения каналов из DynamoDB (попытка {attempt + 1}/{MAX_RETRIES}): {e}")
+            if attempt == MAX_RETRIES - 1:
+                return []
 
 async def broadcast_message_to_all_users(client, message):
     try:
