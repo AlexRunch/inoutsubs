@@ -337,7 +337,6 @@ async def main(event):
     finally:
         if 'client' in locals():
             await client.disconnect()
-        logging.getLogger().flush()  # Гарантируем запись всех логов
 
 def lambda_handler(event, context):
     logger.info(f"Получено событие Lambda: {event}")
@@ -350,6 +349,4 @@ def lambda_handler(event, context):
             'statusCode': 500,
             'body': json.dumps({'error': str(e)})
         }
-    finally:
-        logging.getLogger().flush()  # Гарантируем запись всех логов перед завершением
     return {'statusCode': 200, 'body': json.dumps('OK')}
