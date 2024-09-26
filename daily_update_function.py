@@ -9,9 +9,10 @@ import logging
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-# Настройка логгера
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Установите уровень логирования на DEBUG
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
 
 # Конфигурация Telegram API
 API_ID = 24502638
