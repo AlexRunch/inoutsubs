@@ -59,6 +59,14 @@ def send_email(subject, body, recipient_email):
         logger.error(f"Ошибка при отправке email на адрес {recipient_email}: {e}")
         raise
 
+def mask_email(email):
+    parts = email.split('@')
+    username = parts[0]
+    domain = parts[1]
+    masked_username = username[:3] + '*' * (len(username) - 3)
+    masked_domain = domain[0] + '*' * (len(domain.split('.')[0]) - 1) + '.' + domain.split('.')[-1]
+    return f"{masked_username}@{masked_domain}"
+
 async def process_channel(client, channel_data):
     try:
         channel_name = channel_data['channel_id']
@@ -66,7 +74,7 @@ async def process_channel(client, channel_data):
         admin_email = channel_data.get('email')
         
         # Логирование данных канала
-        logger.info(f"Обработка канала: {channel_name}, дата: {date}, email: {admin_email}")
+        logger.info(f"Обработка канала: {channel_name}, дата: {date}, email: {mask_email(admin_email)}")
         
         if not admin_email or admin_email == 'no_email_provided@example.com':
             logger.error(f"Адрес электронной почты администратора не указан для канала {channel_name}")
@@ -98,13 +106,13 @@ async def process_channel(client, channel_data):
             email_body = f"Статус подписчиков канала {channel_name} - без изменений"
         
         # Логирование отправляемого письма
-        logger.info(f"Отправка email на адрес {admin_email} с темой '{email_subject}' и телом:\n{email_body}")
+        logger.info(f"Отправка email на адрес {mask_email(admin_email)} с темой '{email_subject}' и телом:\n{email_body}")
         
         # Отправка email
         send_email(email_subject, email_body, admin_email)
         
         # Логирование успешной отправки
-        logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {admin_email}")
+        logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {mask_email(admin_email)}")
         
         # Обновление списка подписчиков в DynamoDB
         TABLE.update_item(
@@ -133,7 +141,7 @@ async def main():
         
         # Логирование данных каналов
         for channel in channels:
-            logger.info(f"Данные канала: {channel}")
+            logger.info(f"Данные канала: {channel['channel_id']} - {mask_email(channel.get('email', 'no_email_provided@example.com'))}")
         
         # Создание задач для обработки каждого канала
         tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
