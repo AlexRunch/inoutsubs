@@ -1,6 +1,4 @@
-import json
-import boto3
-import asyncio
+
 import os
 from telethon import TelegramClient
 from telethon.sessions import MemorySession
@@ -9,7 +7,7 @@ import logging
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 
-# Установите уровень логирования на DEBUG
+# Установите уровень логирования на DEBUG   (это мойкомментарий)
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
