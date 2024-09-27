@@ -1,4 +1,6 @@
-
+import json
+import boto3
+import asyncio
 import os
 from telethon import TelegramClient
 from telethon.sessions import MemorySession
@@ -159,3 +161,4 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.error(f"Ошибка в lambda_handler: {e}")
         return {'statusCode': 500, 'body': f'Ошибка: {e}'.encode('utf-8')}
+
