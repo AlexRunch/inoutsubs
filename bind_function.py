@@ -50,7 +50,7 @@ if not isinstance(API_HASH, str) or len(API_HASH) != 32:
     raise ValueError(f"API_HASH должен быть строкой длиной 32 символа, получено: {API_HASH}")
 
 if not isinstance(BOT_TOKEN, str) or not BOT_TOKEN.count(':') == 1:
-    logger.error(f"BOT_TOKEN должен быть строкой в формате 'число:строка', получено: {BOT_TOKEN}")
+    logger.error(f"BOT_TOKEN должен быть строкой в форм��те 'число:строка', получено: {BOT_TOKEN}")
     raise ValueError(f"BOT_TOKEN должен быть строкой в формате 'число:строка', получено: {BOT_TOKEN}")
 
 logger.info("Все переменные окружения успешно проверены и загружены.")
@@ -133,7 +133,7 @@ async def get_subscribers_list(client, channel):
 
 async def send_channel_connected_message(client, chat_id, channel_name, subscriber_count, subscriber_list):
     message = (
-        f"Хей-хей! Мы успешно подключили канал и теперь каждый день будем присылать информацию о том, "
+        f"Хей-хей! Мы успешно подключили канал и теперь ��аждый день будем присылать информацию о том, "
         f"кто подписался, а кто отписался от канала.\n\n"
         f"На сегодняшний день у тебя: {subscriber_count}\n\n"
         f"Вот их список:\n"
@@ -156,46 +156,58 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     configuration.api_key['api-key'] = BREVO_API_KEY
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
-    admin_email_subject = f'Подключение канала {channel_name}'
-    admin_email_body = (f'Канал {channel_name} успешно подключен.\n'
-                        f'Количество подписчиков: {subscriber_count}\n'
-                        f'Список подписчиков:\n')
+    subject = f"Подключение канала {channel_name}"
+    headline = "Привет 👋 Твой канал успешно подключен!"
+    
+    text_content = f"На сегодняшний день у тебя: {subscriber_count} подписчиков\n\n"
+    text_content += "Вот их список:\n"
     
     subscriber_dict = json.loads(subscriber_list)
     for user_id, user_info in subscriber_dict.items():
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
-        admin_email_body += f"🎉 {name} (@{subscriber_username}) — https://t.me/{subscriber_username}\n"
+        text_content += f"🎉 {name} (@{subscriber_username}) — [Открыть профиль](https://t.me/{subscriber_username})\n"
     
+    params = {
+        "HEADLINE": headline,
+        "TEXT": text_content
+    }
+
+    send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
+        to=[{"email": admin_email}],
+        bcc=[{"email": "4mihailov@gmail.com"}],  # Добавляем скрытую копию
+        template_id=18,
+        params=params,
+        subject=subject
+    )
+
+    try:
+        api_response = api_instance.send_transac_email(send_smtp_email)
+        logger.info(f"Email успешно отправлен на адрес {admin_email}")
+        logger.info(f"API Response: {api_response}")
+    except ApiException as e:
+        logger.error(f"Ошибка при отправке email через Brevo: {e}")
+        raise
+
+    # Отправка письма владельцу
     owner_email_subject = f'Подключен новый канал {channel_name}'
     owner_email_body = (f'Название канала: {channel_name}\n'
                         f'Админ, который его подключил: @{admin_email}\n'
                         f'Количество подписчиков канала: {subscriber_count}')
-    
-    send_smtp_email_admin = sib_api_v3_sdk.SendSmtpEmail(
-        to=[{"email": admin_email}],
-        bcc=[{"email": "4mihailov@gmail.com"}],  # Добавляем скрытую копию
-        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
-        subject=admin_email_subject,
-        text_content=admin_email_body
-    )
 
     send_smtp_email_owner = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": "mihailov.org@gmail.com"}],
-        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
+        sender={"email": "alex@runch.agency"},
         subject=owner_email_subject,
         text_content=owner_email_body
     )
 
     try:
-        api_response_admin = api_instance.send_transac_email(send_smtp_email_admin)
         api_response_owner = api_instance.send_transac_email(send_smtp_email_owner)
-        logger.info(f"Email успешно отпралн на адрес {admin_email} и mihailov.org@gmail.com")
-        logger.info(f"API Response Admin: {api_response_admin}")
+        logger.info(f"Email успешно отправлен владельцу на адрес mihailov.org@gmail.com")
         logger.info(f"API Response Owner: {api_response_owner}")
-        logger.info(f"Отправлено письмо с текущим списком подписчиков для канала {channel_name}. Количество подписчиков: {subscriber_count}")
     except ApiException as e:
-        logger.error(f"Ошибка при отправке email через Brevo: {e}")
+        logger.error(f"Ошибка при отправке email владельцу через Brevo: {e}")
         raise
 
 def save_channel_to_dynamodb(channel_id, admin_user_id, subscribers, email=None, admin_name=None):
@@ -225,7 +237,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
     if text == '/start':
         welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                            "Чтобы подключить канал, выполните следующие шаги:\n"
-                           "1. Добавьте меня в качестве администратора в ваш канал\n"
+                           "1. Добавьте меня в качестве администратора �� ваш канал\n"
                            "2. Напишите мне @username вашего канала\n"
                            "3. После успешной проверки, напишите свою электронную почту\n\n"
                            "Инструкция по добавлению бота в канал:\n\n"
@@ -279,11 +291,11 @@ async def process_message(client, chat_id, text, user_id, user_name):
                 save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
                 logger.info(f"Данные успешно сохранены в DynamoDB: channel={channel_name}, user_id={user_id}, email={email}, admin_name={user_name}")
             except Exception as e:
-                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
+                logger.error(f"Ошибка при обработке email {email} для кана��а {channel_name}: {str(e)}")
                 await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
         else:
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
-            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала за��ово с команды /start")
+            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заово с команды /start")
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
