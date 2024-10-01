@@ -48,24 +48,22 @@ def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
     subject = f"{channel_name} изменение в подписчиках"
     headline = "Привет 👋  Принес тебе инфу по подписчикам"
     
-    # Форматирование текста с изменениями подписчиков
     text_content = ""
     if new_subscribers:
-        text_content += "*Подписались:*\n\n"
+        text_content += "<p><strong>Подписались:</strong></p>"
         for user_id, user_info in new_subscribers.items():
             name, username = user_info.rsplit('@', 1)
             username = username.strip('()')
-            text_content += f"🎉 {name.strip()} (@{username}) — [Открыть профиль](https://t.me/{username})\n\n"
-        text_content += "\n"
+            text_content += f'<p>🎉 {name.strip()} (@{username}) — <a href="https://t.me/{username}">Открыть профиль</a></p>'
+        text_content += "<br>"
     
     if unsubscribed:
-        text_content += "*Отписались:*\n\n"
+        text_content += "<p><strong>Отписались:</strong></p>"
         for user_id, user_info in unsubscribed.items():
             name, username = user_info.rsplit('@', 1)
             username = username.strip('()')
-            text_content += f"😢 {name.strip()} (@{username}) — [Открыть профиль](https://t.me/{username})\n\n"
+            text_content += f'<p>😢 {name.strip()} (@{username}) — <a href="https://t.me/{username}">Открыть профиль</a></p>'
 
-    # Подготовка параметров для шаблона
     params = {
         "HEADLINE": headline,
         "TEXT": text_content
@@ -118,7 +116,7 @@ async def process_channel(client, channel_data):
         # Получение текущих подписчиков канала
         current_subscribers = await get_subscribers_list(client, channel_name)
         
-        # Определение новых подписчиков и отписавших��я
+        # Определение новых подписчиков и отписавшихя
         new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
         unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
         

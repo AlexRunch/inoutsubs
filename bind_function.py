@@ -157,16 +157,16 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
     subject = f"Подключение канала {channel_name}"
-    headline = "Привет 👋 Твой канал успешно подключен!"
+    headline = "Привет 👋 Твой канал успеш��о подключен!"
     
-    text_content = f"На сегодняшний день у тебя: {subscriber_count} подписчиков\n\n"
-    text_content += "Вот их список:\n\n"
+    text_content = f"<p>На сегодняшний день у тебя: {subscriber_count} подписчиков</p>"
+    text_content += "<p>Вот их список:</p>"
     
     subscriber_dict = json.loads(subscriber_list)
     for user_id, user_info in subscriber_dict.items():
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
-        text_content += f"🎉 {name} (@{subscriber_username}) — [Открыть профиль](https://t.me/{subscriber_username})\n\n"
+        text_content += f'<p>🎉 {name} (@{subscriber_username}) — <a href="https://t.me/{subscriber_username}">Открыть профиль</a></p>'
     
     params = {
         "HEADLINE": headline,
@@ -262,7 +262,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
         channel_name = text
         is_admin = await verify_channel_admin(client, user_id, channel_name)
         if is_admin:
-            await send_message(client, chat_id, "Канал успешно проверен. Пожалуйста, напишите вашу электронную почту.")
+            await send_message(client, chat_id, "Канал успешно провер��н. Пожалуйста, напишите вашу электронную почту.")
             try:
                 subscribers = await get_subscribers_list(client, channel_name)
                 save_channel_to_dynamodb(channel_name, user_id, subscribers, admin_name=user_name)
