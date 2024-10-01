@@ -96,35 +96,36 @@ async def process_channel(client, channel_data):
         new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
         unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
         
-        # Формирование тела письма
+        # Проверка наличия изменений в подписчиках
         if new_subscribers or unsubscribed:
+            # Формирование тела письма
             email_subject = f'Обновления по подписчикам канала {channel_name}'
             email_body = f"Обновления для канала {channel_name}:\n\n"
             email_body += "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + "\n\n"
             email_body += "Отписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
+            
+            # Логирование отправляемого письма
+            logger.info(f"Отправка email на адрес {mask_email(admin_email)} с темой '{email_subject}' и телом:\n{email_body}")
+            
+            # Отправка email
+            send_email(email_subject, email_body, admin_email)
+            
+            # Логирование успешной отправки
+            logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {mask_email(admin_email)}")
+            
+            # Обновление списка подписчиков в DynamoDB
+            TABLE.update_item(
+                Key={'channel_id': channel_name, 'date': date},
+                UpdateExpression="set subscribers = :s, last_update = :u",
+                ExpressionAttributeValues={
+                    ':s': json.dumps(current_subscribers, ensure_ascii=False),
+                    ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            )
+            logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
         else:
-            email_subject = f'Статус подписчиков канала {channel_name}'
-            email_body = f"Статус подписчиков канала {channel_name} - без изменений"
+            logger.info(f"Нет изменений в подписчиках для канала {channel_name}, email не отправлен")
         
-        # Логирование отправляемого письма
-        logger.info(f"Отправка email на адрес {mask_email(admin_email)} с темой '{email_subject}' и телом:\n{email_body}")
-        
-        # Отправка email
-        send_email(email_subject, email_body, admin_email)
-        
-        # Логирование успешной отправки
-        logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {mask_email(admin_email)}")
-        
-        # Обновление списка подписчиков в DynamoDB
-        TABLE.update_item(
-            Key={'channel_id': channel_name, 'date': date},
-            UpdateExpression="set subscribers = :s, last_update = :u",
-            ExpressionAttributeValues={
-                ':s': json.dumps(current_subscribers, ensure_ascii=False),
-                ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-        )
-        logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
     except Exception as e:
         logger.error(f"Ошибка при обработке канала {channel_name}: {e}")
         raise
@@ -144,9 +145,20 @@ async def main():
         for channel in channels:
             logger.info(f"Данные канала: {channel['channel_id']} - {mask_email(channel.get('email', 'no_email_provided@example.com'))}")
         
+        channels_processed = 0
+        channels_updated = 0
+        
         # Создание задач для обработки каждого канала
         tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        for result in results:
+            channels_processed += 1
+            if isinstance(result, tuple) and result[0] == "updated":
+                channels_updated += 1
+        
+        logger.info(f"Обработано каналов: {channels_processed}")
+        logger.info(f"Обновлено каналов (отправлены email): {channels_updated}")
         
         await client.disconnect()
     except Exception as e:
@@ -161,4 +173,3 @@ def lambda_handler(event, context):
     except Exception as e:
         logger.error(f"Ошибка в lambda_handler: {e}")
         return {'statusCode': 500, 'body': f'Ошибка: {e}'.encode('utf-8')}
-
