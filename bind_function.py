@@ -33,9 +33,7 @@ logger.info(f"TELEGRAM_BOT_TOKEN: {BOT_TOKEN}, type: {type(BOT_TOKEN)}")
 logger.info(f"BREVO_API_KEY: {BREVO_API_KEY}, type: {type(BREVO_API_KEY)}")
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
-    error_message = "Не удалось получить данные для Telegram API из переменных окружения. Проверьте настройки."
-    logger.error(error_message)
-    raise ValueError(error_message)
+    raise ValueError("Missing Telegram API environment variables")
 
 # Дополнительные проверки
 try:
@@ -189,7 +187,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     try:
         api_response_admin = api_instance.send_transac_email(send_smtp_email_admin)
         api_response_owner = api_instance.send_transac_email(send_smtp_email_owner)
-        logger.info(f"Email успешно отправлен на адрес {admin_email} и mihailov.org@gmail.com")
+        logger.info(f"Email успешно отпра��л��н на адрес {admin_email} и mihailov.org@gmail.com")
         logger.info(f"API Response Admin: {api_response_admin}")
         logger.info(f"API Response Owner: {api_response_owner}")
         logger.info(f"Отправлено письмо с текущим списком подписчиков для канала {channel_name}. Количество подписчиков: {subscriber_count}")
