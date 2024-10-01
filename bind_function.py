@@ -17,7 +17,7 @@ from sib_api_v3_sdk.rest import ApiException
 import sys
 
 # Настройка логгера
-logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(message)s')
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(message)s', encoding='utf-8')
 logger = logging.getLogger(__name__)
 
 # Конфигурация Telegram API
@@ -27,15 +27,32 @@ BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')
 
 # Отладочные сообщения для проверки значений переменных окружения
-logger.info(f"TELEGRAM_API_ID: {API_ID}")
-logger.info(f"TELEGRAM_API_HASH: {API_HASH}")
-logger.info(f"TELEGRAM_BOT_TOKEN: {BOT_TOKEN}")
-logger.info(f"BREVO_API_KEY: {BREVO_API_KEY}")
+logger.info(f"TELEGRAM_API_ID: {API_ID}, type: {type(API_ID)}")
+logger.info(f"TELEGRAM_API_HASH: {API_HASH}, type: {type(API_HASH)}")
+logger.info(f"TELEGRAM_BOT_TOKEN: {BOT_TOKEN}, type: {type(BOT_TOKEN)}")
+logger.info(f"BREVO_API_KEY: {BREVO_API_KEY}, type: {type(BREVO_API_KEY)}")
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
     error_message = "Не удалось получить данные для Telegram API из переменных окружения. Проверьте настройки."
-    logger.error(error_message.encode('utf-8'))
-    raise ValueError(error_message.encode('utf-8'))
+    logger.error(error_message)
+    raise ValueError(error_message)
+
+# Дополнительные проверки
+try:
+    API_ID = int(API_ID)
+except ValueError:
+    logger.error(f"API_ID должен быть целым числом, получено: {API_ID}")
+    raise ValueError(f"API_ID должен быть целым числом, получено: {API_ID}")
+
+if not isinstance(API_HASH, str) or len(API_HASH) != 32:
+    logger.error(f"API_HASH должен быть строкой длиной 32 символа, получено: {API_HASH}")
+    raise ValueError(f"API_HASH должен быть строкой длиной 32 символа, получено: {API_HASH}")
+
+if not isinstance(BOT_TOKEN, str) or not BOT_TOKEN.count(':') == 1:
+    logger.error(f"BOT_TOKEN должен быть строкой в формате 'число:строка', получено: {BOT_TOKEN}")
+    raise ValueError(f"BOT_TOKEN должен быть строкой в формате 'число:строка', получено: {BOT_TOKEN}")
+
+logger.info("Все переменные окружения успешно проверены и загружены.")
 
 # Конфигурация S3 и DynamoDB
 S3_CLIENT = boto3.client('s3')
