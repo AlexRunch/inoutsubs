@@ -20,9 +20,13 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Конфигурация Telegram API
-API_ID = 24502638
-API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
-BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
+API_ID = os.getenv('TELEGRAM_API_ID')
+API_HASH = os.getenv('TELEGRAM_API_HASH')
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+
+if not all([API_ID, API_HASH, BOT_TOKEN]):
+    logger.error("Не удалось получить данные для Telegram API из секретов GitHub. Проверьте настройки.")
+    raise ValueError("Отсутствуют необходимые данные для Telegram API")
 
 # Конфигурация S3 и DynamoDB
 S3_CLIENT = boto3.client('s3')
