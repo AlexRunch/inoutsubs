@@ -40,16 +40,40 @@ async def get_subscribers_list(client, channel):
         logger.error(f"Ошибка при получении списка подписчиков для канала {channel}: {e}")
         raise
 
-def send_email(subject, body, recipient_email):
+def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
 
+    subject = f"{channel_name} изменение в подписчиках"
+    headline = "Привет 👋  Принес тебе инфу по подписчикам"
+    
+    # Форматирование текста с изменениями подписчиков
+    text_content = ""
+    if new_subscribers:
+        text_content += "Новые подписчики 🎉:\n"
+        for user_id, user_info in new_subscribers.items():
+            username = user_info.split('@')[-1].strip('()')
+            text_content += f"• {user_info} - https://t.me/{username}\n"
+        text_content += "\n"
+    
+    if unsubscribed:
+        text_content += "Отписались 😢:\n"
+        for user_id, user_info in unsubscribed.items():
+            username = user_info.split('@')[-1].strip('()')
+            text_content += f"• {user_info} - https://t.me/{username}\n"
+
+    # Подготовка параметров для шаблона
+    params = {
+        "HEADLINE": headline,
+        "TEXT": text_content
+    }
+
     send_smtp_email = sib_api_v3_sdk.SendSmtpEmail(
         to=[{"email": recipient_email}],
-        sender={"email": "alex@runch.agency"},  # Ваш проверенный email в Brevo
-        subject=subject,
-        text_content=body
+        template_id=18,
+        params=params,
+        subject=subject
     )
 
     try:
@@ -79,7 +103,7 @@ async def process_channel(client, channel_data):
         
         if not admin_email or admin_email == 'no_email_provided@example.com':
             logger.error(f"Адрес электронной почты администратора не указан для канала {channel_name}")
-            return
+            return ("no_email", channel_name)
         
         previous_subscribers = channel_data.get('subscribers', '{}')
         
@@ -98,17 +122,8 @@ async def process_channel(client, channel_data):
         
         # Проверка наличия изменений в подписчиках
         if new_subscribers or unsubscribed:
-            # Формирование тела письма
-            email_subject = f'Обновления по подписчикам канала {channel_name}'
-            email_body = f"Обновления для канала {channel_name}:\n\n"
-            email_body += "Новые подписчики:\n" + "\n".join([f"{name}" for name in new_subscribers.values()]) + "\n\n"
-            email_body += "Отписались:\n" + "\n".join([f"{name}" for name in unsubscribed.values()])
-            
-            # Логирование отправляемого письма
-            logger.info(f"Отправка email на адрес {mask_email(admin_email)} с темой '{email_subject}' и телом:\n{email_body}")
-            
-            # Отправка email
-            send_email(email_subject, email_body, admin_email)
+            # Отправка email с использованием шаблона
+            send_email(channel_name, new_subscribers, unsubscribed, admin_email)
             
             # Логирование успешной отправки
             logger.info(f"Письмо успешно отправлено: канал {channel_name}, админ {mask_email(admin_email)}")
@@ -123,12 +138,14 @@ async def process_channel(client, channel_data):
                 }
             )
             logger.info(f"Список подписчиков для канала {channel_name} успешно обновлен в DynamoDB")
+            return ("updated", channel_name)
         else:
             logger.info(f"Нет изменений в подписчиках для канала {channel_name}, email не отправлен")
+            return ("not_updated", channel_name)
         
     except Exception as e:
         logger.error(f"Ошибка при обработке канала {channel_name}: {e}")
-        raise
+        return ("error", channel_name)
 
 async def main():
     try:
