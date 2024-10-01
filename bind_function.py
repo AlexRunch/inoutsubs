@@ -26,10 +26,16 @@ API_HASH = os.getenv('TELEGRAM_API_HASH')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')
 
+# Отладочные сообщения для проверки значений переменных окружения
+logger.info(f"TELEGRAM_API_ID: {API_ID}")
+logger.info(f"TELEGRAM_API_HASH: {API_HASH}")
+logger.info(f"TELEGRAM_BOT_TOKEN: {BOT_TOKEN}")
+logger.info(f"BREVO_API_KEY: {BREVO_API_KEY}")
+
 if not all([API_ID, API_HASH, BOT_TOKEN]):
     error_message = "Не удалось получить данные для Telegram API из переменных окружения. Проверьте настройки."
-    logger.error(error_message)
-    raise ValueError(error_message)
+    logger.error(error_message.encode('utf-8'))
+    raise ValueError(error_message.encode('utf-8'))
 
 # Конфигурация S3 и DynamoDB
 S3_CLIENT = boto3.client('s3')
