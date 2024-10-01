@@ -50,19 +50,19 @@ def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
     
     text_content = ""
     if new_subscribers:
-        text_content += "<p><strong>Подписались:</strong></p>"
+        text_content += "Подписались:\n\n"
         for user_id, user_info in new_subscribers.items():
             name, username = user_info.rsplit('@', 1)
             username = username.strip('()')
-            text_content += f'<p>🎉 {name.strip()} (@{username}) — <a href="https://t.me/{username}">Открыть профиль</a></p>'
-        text_content += "<br>"
+            text_content += f"🎉 {name.strip()} (@{username}) — https://t.me/{username}\n\n"
+        text_content += "\n"
     
     if unsubscribed:
-        text_content += "<p><strong>Отписались:</strong></p>"
+        text_content += "Отписались:\n\n"
         for user_id, user_info in unsubscribed.items():
             name, username = user_info.rsplit('@', 1)
             username = username.strip('()')
-            text_content += f'<p>😢 {name.strip()} (@{username}) — <a href="https://t.me/{username}">Открыть профиль</a></p>'
+            text_content += f"😢 {name.strip()} (@{username}) — https://t.me/{username}\n\n"
 
     params = {
         "HEADLINE": headline,
