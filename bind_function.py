@@ -33,7 +33,10 @@ logger.info(f"TELEGRAM_BOT_TOKEN: {BOT_TOKEN}, type: {type(BOT_TOKEN)}")
 logger.info(f"BREVO_API_KEY: {BREVO_API_KEY}, type: {type(BREVO_API_KEY)}")
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
-    raise ValueError("Missing Telegram API environment variables")
+    missing_vars = [var for var in ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_BOT_TOKEN'] if not os.getenv(var)]
+    error_message = f"Missing Telegram API environment variables: {', '.join(missing_vars)}"
+    logger.error(error_message)
+    raise ValueError(error_message)
 
 # Дополнительные проверки
 try:
@@ -187,7 +190,7 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     try:
         api_response_admin = api_instance.send_transac_email(send_smtp_email_admin)
         api_response_owner = api_instance.send_transac_email(send_smtp_email_owner)
-        logger.info(f"Email успешно отпра��л��н на адрес {admin_email} и mihailov.org@gmail.com")
+        logger.info(f"Email успешно отпралн на адрес {admin_email} и mihailov.org@gmail.com")
         logger.info(f"API Response Admin: {api_response_admin}")
         logger.info(f"API Response Owner: {api_response_owner}")
         logger.info(f"Отправлено письмо с текущим списком подписчиков для канала {channel_name}. Количество подписчиков: {subscriber_count}")
@@ -280,7 +283,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
                 await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
         else:
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
-            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала заново с команды /start")
+            await send_message(client, chat_id, "Произошла ошибка. Пожалуйста, начните процесс подключения канала за��ово с команды /start")
     else:
         await send_message(client, chat_id, "Я не понимаю эту команду. Пожалуйста, следуйте инструкциям или используйте /start для начала.")
 
