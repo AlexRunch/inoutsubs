@@ -14,19 +14,22 @@ from telethon.tl.functions.messages import SetTypingRequest
 from telethon.tl.types import SendMessageTypingAction
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
+import sys
 
 # Настройка логгера
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(message)s')
 logger = logging.getLogger(__name__)
 
 # Конфигурация Telegram API
 API_ID = os.getenv('TELEGRAM_API_ID')
 API_HASH = os.getenv('TELEGRAM_API_HASH')
 BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+BREVO_API_KEY = os.getenv('BREVO_API_KEY')
 
 if not all([API_ID, API_HASH, BOT_TOKEN]):
-    logger.error("Не удалось получить данные для Telegram API из секретов GitHub. Проверьте настройки.")
-    raise ValueError("Отсутствуют необходимые данные для Telegram API")
+    error_message = "Не удалось получить данные для Telegram API из переменных окружения. Проверьте настройки."
+    logger.error(error_message)
+    raise ValueError(error_message)
 
 # Конфигурация S3 и DynamoDB
 S3_CLIENT = boto3.client('s3')
