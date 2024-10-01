@@ -50,7 +50,7 @@ if not isinstance(API_HASH, str) or len(API_HASH) != 32:
     raise ValueError(f"API_HASH должен быть строкой длиной 32 символа, получено: {API_HASH}")
 
 if not isinstance(BOT_TOKEN, str) or not BOT_TOKEN.count(':') == 1:
-    logger.error(f"BOT_TOKEN должен быть строкой в форм��те 'число:строка', получено: {BOT_TOKEN}")
+    logger.error(f"BOT_TOKEN должен быть строкой в формте 'число:строка', получено: {BOT_TOKEN}")
     raise ValueError(f"BOT_TOKEN должен быть строкой в формате 'число:строка', получено: {BOT_TOKEN}")
 
 logger.info("Все переменные окружения успешно проверены и загружены.")
@@ -133,7 +133,7 @@ async def get_subscribers_list(client, channel):
 
 async def send_channel_connected_message(client, chat_id, channel_name, subscriber_count, subscriber_list):
     message = (
-        f"Хей-хей! Мы успешно подключили канал и теперь ��аждый день будем присылать информацию о том, "
+        f"Хей-хей! Мы успешно подключили канал и теперь аждый день будем присылать информацию о том, "
         f"кто подписался, а кто отписался от канала.\n\n"
         f"На сегодняшний день у тебя: {subscriber_count}\n\n"
         f"Вот их список:\n"
@@ -160,13 +160,13 @@ def send_email(channel_name, admin_email, subscriber_count, subscriber_list):
     headline = "Привет 👋 Твой канал успешно подключен!"
     
     text_content = f"На сегодняшний день у тебя: {subscriber_count} подписчиков\n\n"
-    text_content += "Вот их список:\n"
+    text_content += "Вот их список:\n\n"
     
     subscriber_dict = json.loads(subscriber_list)
     for user_id, user_info in subscriber_dict.items():
         name, subscriber_username = user_info.split(' (@')
         subscriber_username = subscriber_username.rstrip(')')
-        text_content += f"🎉 {name} (@{subscriber_username}) — [Открыть профиль](https://t.me/{subscriber_username})\n"
+        text_content += f"🎉 {name} (@{subscriber_username}) — [Открыть профиль](https://t.me/{subscriber_username})\n\n"
     
     params = {
         "HEADLINE": headline,
@@ -237,7 +237,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
     if text == '/start':
         welcome_message = ("Привет! Я бот для отслеживания изменений подписчиков вашего канала.\n\n"
                            "Чтобы подключить канал, выполните следующие шаги:\n"
-                           "1. Добавьте меня в качестве администратора �� ваш канал\n"
+                           "1. Добавьте меня в качестве администратора  ваш канал\n"
                            "2. Напишите мне @username вашего канала\n"
                            "3. После успешной проверки, напишите свою электронную почту\n\n"
                            "Инструкция по добавлению бота в канал:\n\n"
@@ -291,7 +291,7 @@ async def process_message(client, chat_id, text, user_id, user_name):
                 save_channel_to_dynamodb(channel_name, user_id, subscribers, email, admin_name=user_name)
                 logger.info(f"Данные успешно сохранены в DynamoDB: channel={channel_name}, user_id={user_id}, email={email}, admin_name={user_name}")
             except Exception as e:
-                logger.error(f"Ошибка при обработке email {email} для кана��а {channel_name}: {str(e)}")
+                logger.error(f"Ошибка при обработке email {email} для канала {channel_name}: {str(e)}")
                 await send_message(client, chat_id, "Произошла ошибка при обработке вашего запроса. Пожалуйста, попробуйте еще раз.")
         else:
             logger.warning(f"Не удалось найти канал в DynamoDB для пользователя {user_id}")
