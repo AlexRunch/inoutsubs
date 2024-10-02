@@ -15,6 +15,8 @@ from telethon.tl.types import SendMessageTypingAction
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 import sys
+from telethon.tl.functions.channels import GetParticipantsRequest
+from telethon.tl.types import ChannelParticipantsSearch
 
 # Настройка логгера
 logging.basicConfig(level=logging.INFO, stream=sys.stdout, format='%(message)s', encoding='utf-8')
@@ -125,8 +127,31 @@ async def verify_channel_admin(client, user_id, channel_name):
 async def get_subscribers_list(client, channel):
     try:
         channel_entity = await client.get_entity(channel)
-        participants = await client.get_participants(channel_entity)
-        return {str(p.id): f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})' for p in participants}
+        all_participants = []
+        offset = 0
+        limit = 200
+        
+        while True:
+            participants = await client(GetParticipantsRequest(
+                channel_entity, ChannelParticipantsSearch(''), offset, limit,
+                hash=0
+            ))
+            if not participants.users:
+                break
+            all_participants.extend(participants.users)
+            offset += len(participants.users)
+            logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
+            
+            # Добавляем небольшую задержку, чтобы избежать ограничений API
+            await asyncio.sleep(1)
+        
+        subscribers = {}
+        for p in all_participants:
+            subscriber_info = f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})'
+            subscribers[str(p.id)] = subscriber_info
+        
+        logger.info(f"Всего получено {len(subscribers)} подписчиков для канала {channel}")
+        return subscribers
     except Exception as e:
         logger.error(f"Ошибка получения списка подписчиков: {e}")
         raise
