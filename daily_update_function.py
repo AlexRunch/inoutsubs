@@ -26,11 +26,6 @@ DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
 TABLE = DYNAMODB.Table('telegram-subscribers-new')
 BREVO_API_KEY = os.getenv('BREVO_API_KEY')  # Получение API ключа из переменных окружения
 
-if not BREVO_API_KEY:
-    error_message = "BREVO_API_KEY не установлен. Проверьте переменные окружения."
-    logger.error(error_message)
-    raise ValueError(error_message.encode('utf-8'))
-
 async def get_subscribers_list(client, channel):
     try:
         logger.info(f"Начинаю получение подписчиков для канала {channel}")
@@ -88,6 +83,12 @@ async def get_subscribers_list(client, channel):
         raise
 
 def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
+    # Проверяем BREVO_API_KEY только когда он действительно нужен
+    if not BREVO_API_KEY:
+        error_message = f"BREVO_API_KEY не установлен для отправки email канала {channel_name}"
+        logger.error(error_message)
+        raise ValueError(error_message)
+        
     configuration = sib_api_v3_sdk.Configuration()
     configuration.api_key['api-key'] = BREVO_API_KEY
     api_instance = sib_api_v3_sdk.TransactionalEmailsApi(sib_api_v3_sdk.ApiClient(configuration))
