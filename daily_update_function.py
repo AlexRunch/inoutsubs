@@ -9,7 +9,7 @@ import logging
 import sib_api_v3_sdk
 from sib_api_v3_sdk.rest import ApiException
 from telethon.tl.functions.channels import GetParticipantsRequest
-from telethon.tl.types import ChannelParticipantsSearch
+from telethon.tl.types import ChannelParticipantsSearch, ChannelParticipantsRecent, ChannelParticipantsAdmins
 
 # Установите уровень логирования на DEBUG   (это мойкомментарий)
 logging.basicConfig(level=logging.DEBUG)
@@ -208,8 +208,9 @@ async def process_channel(client, channel_data):
         
         previous_subscribers = json.loads(previous_subscribers)
         
-        # Получение текущих подписчиков канала
-        current_subscribers = await get_subscribers_list(client, channel_name)
+        # Получение текущих подписчиков канала (АДМИНСКИЙ МЕТОД)
+        logger.info(f"👑 Используем админский метод получения подписчиков для {channel_name}")
+        current_subscribers = await get_subscribers_list_admin(client, channel_name)
         
         logger.info(f"📊 Сравнение подписчиков канала {channel_name}:")
         logger.info(f"📊 Предыдущих подписчиков: {len(previous_subscribers)}")
@@ -399,3 +400,301 @@ def lambda_handler(event, context):
         }
         logger.error(f"Возвращаю ошибку: {response}")
         return response
+
+async def get_subscribers_list_as_user(client, channel, use_user_account=True):
+    """
+    Получение участников канала через пользовательский аккаунт
+    Пользовательские аккаунты имеют полный доступ к участникам
+    """
+    try:
+        logger.info(f"🔑 Получение подписчиков как ПОЛЬЗОВАТЕЛЬ для канала {channel}")
+        
+        # Создаем отдельный клиент для пользовательского аккаунта
+        user_client = TelegramClient(MemorySession(), API_ID, API_HASH)
+        
+        # ВАЖНО: Здесь нужно авторизоваться как пользователь, а не как бот
+        # Для этого нужен номер телефона и код подтверждения
+        logger.info("📱 Требуется авторизация пользователя для полного доступа к участникам")
+        
+        # Пока используем бота, но с улучшенными методами
+        return await get_subscribers_list_enhanced(client, channel)
+        
+    except Exception as e:
+        logger.error(f"❌ Ошибка получения участников как пользователь: {e}")
+        # Откатываемся на стандартный метод
+        return await get_subscribers_list(client, channel)
+
+async def get_subscribers_list_enhanced(client, channel):
+    """
+    Улучшенный метод получения участников с множественными стратегиями
+    """
+    try:
+        logger.info(f"🔍 Расширенное получение подписчиков для канала {channel}")
+        channel_entity = await client.get_entity(channel)
+        
+        # Определяем тип канала
+        channel_type = "неизвестный"
+        if hasattr(channel_entity, 'broadcast'):
+            if channel_entity.broadcast:
+                channel_type = "публичный канал"
+            else:
+                channel_type = "группа/супергруппа"
+        
+        if hasattr(channel_entity, 'megagroup') and channel_entity.megagroup:
+            channel_type = "супергруппа"
+            
+        logger.info(f"📺 Тип канала {channel}: {channel_type}")
+        
+        all_participants = []
+        
+        # СТРАТЕГИЯ 1: Обычный поиск участников
+        logger.info("📋 Стратегия 1: Обычный поиск участников")
+        participants_1 = await get_participants_with_filter(client, channel_entity, ChannelParticipantsSearch(''))
+        all_participants.extend(participants_1)
+        logger.info(f"✅ Стратегия 1: получено {len(participants_1)} участников")
+        
+        # СТРАТЕГИЯ 2: Последние активные участники
+        logger.info("📋 Стратегия 2: Последние активные участники")
+        try:
+            from telethon.tl.types import ChannelParticipantsRecent
+            participants_2 = await get_participants_with_filter(client, channel_entity, ChannelParticipantsRecent())
+            # Добавляем только уникальных
+            unique_participants_2 = [p for p in participants_2 if p.id not in [u.id for u in all_participants]]
+            all_participants.extend(unique_participants_2)
+            logger.info(f"✅ Стратегия 2: получено {len(unique_participants_2)} новых участников")
+        except Exception as e:
+            logger.warning(f"⚠️ Стратегия 2 недоступна: {e}")
+        
+        # СТРАТЕГИЯ 3: Поиск с популярными именами/символами
+        logger.info("📋 Стратегия 3: Поиск с популярными символами")
+        search_terms = ['a', 'e', 'i', 'o', 'u', 'м', 'а', 'е', 'и', 'о', 'у', 'н', 'т', 'с', 'р']
+        for term in search_terms[:5]:  # Ограничиваем чтобы не превысить лимиты
+            try:
+                participants_3 = await get_participants_with_filter(client, channel_entity, ChannelParticipantsSearch(term))
+                unique_participants_3 = [p for p in participants_3 if p.id not in [u.id for u in all_participants]]
+                all_participants.extend(unique_participants_3)
+                logger.info(f"✅ Стратегия 3 ('{term}'): получено {len(unique_participants_3)} новых участников")
+                await asyncio.sleep(2)  # Пауза между запросами
+            except Exception as e:
+                logger.warning(f"⚠️ Стратегия 3 ('{term}') недоступна: {e}")
+        
+        # Удаляем дубликаты по ID
+        unique_participants = {}
+        for p in all_participants:
+            unique_participants[p.id] = p
+        
+        logger.info(f"🎯 Всего уникальных участников: {len(unique_participants)}")
+        
+        # Преобразуем в нужный формат
+        subscribers = {}
+        for p in unique_participants.values():
+            subscriber_info = f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})'
+            subscribers[str(p.id)] = subscriber_info
+        
+        logger.info(f"🎯 ИТОГО получено {len(subscribers)} подписчиков для канала {channel} (РАСШИРЕННЫЙ МЕТОД)")
+        return subscribers
+        
+    except Exception as e:
+        logger.error(f"💥 Ошибка расширенного получения участников: {e}")
+        # Откатываемся на стандартный метод
+        return await get_subscribers_list(client, channel)
+
+async def get_participants_with_filter(client, channel_entity, filter_type, max_participants=1000):
+    """
+    Получение участников с определенным фильтром
+    """
+    participants = []
+    offset = 0
+    limit = 100
+    max_iterations = 10
+    
+    for iteration in range(max_iterations):
+        try:
+            result = await asyncio.wait_for(
+                client(GetParticipantsRequest(
+                    channel_entity, filter_type, offset, limit, hash=0
+                )),
+                timeout=30
+            )
+            
+            if not result.users:
+                break
+                
+            participants.extend(result.users)
+            offset += len(result.users)
+            
+            if len(participants) >= max_participants:
+                break
+                
+            await asyncio.sleep(1)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Ошибка на итерации {iteration}: {e}")
+            break
+    
+    return participants
+
+async def get_subscribers_list_admin(client, channel):
+    """
+    Получение участников канала с использованием админских прав бота
+    Админ-боты имеют расширенный доступ к участникам
+    """
+    try:
+        logger.info(f"👑 АДМИНСКИЙ ДОСТУП: Получение подписчиков для канала {channel}")
+        channel_entity = await client.get_entity(channel)
+        
+        # Проверяем права бота
+        try:
+            # Пробуем получить права администратора
+            admins = await client(GetParticipantsRequest(
+                channel_entity, ChannelParticipantsAdmins(), 0, 10, hash=0
+            ))
+            bot_is_admin = False
+            bot_me = await client.get_me()
+            for admin in admins.users:
+                if admin.id == bot_me.id:
+                    bot_is_admin = True
+                    break
+            
+            if bot_is_admin:
+                logger.info(f"✅ БОТ ЯВЛЯЕТСЯ АДМИНОМ канала {channel}! Используем полный доступ")
+            else:
+                logger.warning(f"⚠️ Бот НЕ АДМИН канала {channel}, используем ограниченный доступ")
+                
+        except Exception as e:
+            logger.warning(f"⚠️ Не удалось проверить админские права: {e}")
+        
+        # Определяем тип канала
+        channel_type = "неизвестный"
+        if hasattr(channel_entity, 'broadcast'):
+            if channel_entity.broadcast:
+                channel_type = "публичный канал"
+            else:
+                channel_type = "группа/супергруппа"
+        
+        if hasattr(channel_entity, 'megagroup') and channel_entity.megagroup:
+            channel_type = "супергруппа"
+            
+        logger.info(f"📺 Тип канала {channel}: {channel_type}")
+        
+        all_participants = []
+        
+        # СТРАТЕГИЯ АДМИНИСТРАТОРА: Получаем ВСЕ типы участников
+        
+        # 1. ВСЕ УЧАСТНИКИ (главная стратегия для админов)
+        logger.info("👑 АДМИНСКАЯ СТРАТЕГИЯ: Получение ВСЕХ участников")
+        participants_all = await get_all_participants_admin(client, channel_entity)
+        all_participants.extend(participants_all)
+        logger.info(f"✅ Админская стратегия: получено {len(participants_all)} участников")
+        
+        # 2. ПОСЛЕДНИЕ АКТИВНЫЕ (дополнительно)
+        logger.info("📋 Дополнительно: Последние активные участники")
+        try:
+            participants_recent = await get_participants_with_filter(client, channel_entity, ChannelParticipantsRecent(), 500)
+            unique_recent = [p for p in participants_recent if p.id not in [u.id for u in all_participants]]
+            all_participants.extend(unique_recent)
+            logger.info(f"✅ Последние активные: получено {len(unique_recent)} новых участников")
+        except Exception as e:
+            logger.warning(f"⚠️ Последние активные недоступны: {e}")
+        
+        # 3. ПОИСК ПО СИМВОЛАМ (если нужно еще больше)
+        if len(all_participants) < 1000:  # Если все еще мало участников
+            logger.info("📋 Дополнительно: Поиск по популярным символам")
+            search_terms = ['a', 'e', 'i', 'o', 'u', 'м', 'а', 'е', 'и', 'о']
+            for term in search_terms[:3]:  # Ограничиваем чтобы не превысить лимиты
+                try:
+                    participants_search = await get_participants_with_filter(client, channel_entity, ChannelParticipantsSearch(term), 300)
+                    unique_search = [p for p in participants_search if p.id not in [u.id for u in all_participants]]
+                    all_participants.extend(unique_search)
+                    logger.info(f"✅ Поиск '{term}': получено {len(unique_search)} новых участников")
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"⚠️ Поиск '{term}' недоступен: {e}")
+        
+        # Удаляем дубликаты по ID
+        unique_participants = {}
+        for p in all_participants:
+            unique_participants[p.id] = p
+        
+        logger.info(f"🎯 Всего уникальных участников: {len(unique_participants)}")
+        
+        # Преобразуем в нужный формат
+        subscribers = {}
+        for p in unique_participants.values():
+            subscriber_info = f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})'
+            subscribers[str(p.id)] = subscriber_info
+        
+        logger.info(f"👑 ИТОГО получено {len(subscribers)} подписчиков для канала {channel} (АДМИНСКИЙ МЕТОД)")
+        return subscribers
+        
+    except Exception as e:
+        logger.error(f"💥 Ошибка админского получения участников: {e}")
+        # Откатываемся на расширенный метод
+        return await get_subscribers_list_enhanced(client, channel)
+
+async def get_all_participants_admin(client, channel_entity, max_participants=10000):
+    """
+    Получение ВСЕХ участников с использованием админских прав
+    """
+    participants = []
+    offset = 0
+    limit = 200  # Админы могут запрашивать больше за раз
+    max_iterations = 50  # Увеличиваем для больших каналов
+    
+    logger.info(f"👑 Запрос ВСЕХ участников: батч={limit}, макс_итераций={max_iterations}")
+    
+    for iteration in range(max_iterations):
+        try:
+            logger.info(f"👑 Админская итерация {iteration + 1}/{max_iterations}, offset: {offset}, получено: {len(participants)}")
+            
+            # Используем пустой поиск для получения всех участников
+            result = await asyncio.wait_for(
+                client(GetParticipantsRequest(
+                    channel_entity, 
+                    ChannelParticipantsSearch(''),  # Пустой поиск = все участники
+                    offset, 
+                    limit, 
+                    hash=0
+                )),
+                timeout=45  # Увеличенный таймаут для админов
+            )
+            
+            if not result.users:
+                logger.info(f"✅ Получены ВСЕ участники канала на итерации {iteration + 1}")
+                break
+            
+            batch_size = len(result.users)
+            participants.extend(result.users)
+            offset += batch_size
+            
+            logger.info(f"📊 Админская итерация {iteration + 1}: получено {batch_size} участников, всего: {len(participants)}")
+            
+            # Проверка на неполный батч
+            if batch_size < limit:
+                logger.info(f"✅ Получен последний неполный батч ({batch_size} < {limit})")
+                break
+            
+            # Проверка лимита
+            if len(participants) >= max_participants:
+                logger.warning(f"⚠️ Достигнут лимит участников ({max_participants})")
+                break
+                
+            await asyncio.sleep(1.5)  # Пауза между запросами
+            
+        except asyncio.TimeoutError:
+            logger.error(f"⏰ Таймаут на админской итерации {iteration + 1}")
+            if len(participants) > 0:
+                logger.warning(f"🔄 Продолжаю с {len(participants)} участниками")
+                break
+            else:
+                raise
+        except Exception as e:
+            logger.error(f"❌ Ошибка на админской итерации {iteration + 1}: {e}")
+            if len(participants) > 0:
+                logger.warning(f"🔄 Продолжаю с {len(participants)} участниками")
+                break
+            else:
+                raise
+    
+    logger.info(f"👑 Админский метод: получено {len(participants)} участников за {iteration + 1} итераций")
+    return participants
