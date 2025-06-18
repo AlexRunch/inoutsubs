@@ -17,24 +17,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 # Конфигурация Telegram API
-API_ID = os.getenv('TELEGRAM_API_ID')
-API_HASH = os.getenv('TELEGRAM_API_HASH')  
-BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
-
-# Проверка переменных окружения
-if not all([API_ID, API_HASH, BOT_TOKEN]):
-    missing_vars = [var for var in ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_BOT_TOKEN'] if not os.getenv(var)]
-    error_message = f"Missing Telegram API environment variables: {', '.join(missing_vars)}"
-    logger.error(error_message)
-    raise ValueError(error_message)
-
-try:
-    API_ID = int(API_ID)
-except ValueError:
-    logger.error(f"API_ID должен быть целым числом, получено: {API_ID}")
-    raise ValueError(f"API_ID должен быть целым числом")
-
-logger.info("Переменные окружения Telegram API успешно загружены")
+API_ID = 24502638
+API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
+BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
 
 # Конфигурация DynamoDB и Brevo
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
