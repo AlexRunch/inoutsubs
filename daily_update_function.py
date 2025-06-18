@@ -32,8 +32,8 @@ async def get_subscribers_list(client, channel):
         channel_entity = await client.get_entity(channel)
         all_participants = []
         offset = 0
-        limit = 100  # Уменьшаю лимит для стабильности
-        max_iterations = 50  # Ограничиваю количество итераций
+        limit = 50  # Еще больше уменьшаю лимит для экономии памяти
+        max_iterations = 20  # Ограничиваю количество итераций еще больше
         iteration = 0
         
         while iteration < max_iterations:
@@ -45,7 +45,7 @@ async def get_subscribers_list(client, channel):
                         channel_entity, ChannelParticipantsSearch(''), offset, limit,
                         hash=0
                     )),
-                    timeout=30  # Таймаут 30 секунд на запрос
+                    timeout=20  # Уменьшаю таймаут для экономии ресурсов
                 )
                 
                 if not participants.users:
@@ -58,8 +58,11 @@ async def get_subscribers_list(client, channel):
                 
                 logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
                 
+                # Принудительная очистка памяти
+                participants = None
+                
                 # Добавляем задержку между запросами
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)  # Уменьшаю задержку
                 
             except asyncio.TimeoutError:
                 logger.error(f"Таймаут при получении участников на итерации {iteration}")
@@ -75,6 +78,9 @@ async def get_subscribers_list(client, channel):
         for p in all_participants:
             subscriber_info = f'{p.first_name or ""} {p.last_name or ""} (@{p.username or "N/A"})'
             subscribers[str(p.id)] = subscriber_info
+        
+        # Очищаем память
+        all_participants = None
         
         logger.info(f"Всего получено {len(subscribers)} подписчиков для канала {channel}")
         return subscribers
