@@ -32,47 +32,65 @@ async def get_subscribers_list(client, channel):
         channel_entity = await client.get_entity(channel)
         all_participants = []
         offset = 0
-        limit = 50  # Еще больше уменьшаю лимит для экономии памяти
-        max_iterations = 20  # Ограничиваю количество итераций еще больше
+        limit = 100  # Увеличиваю обратно для получения всех подписчиков
+        max_iterations = 100  # Увеличиваю до 100 для больших каналов (до 10,000 подписчиков)
         iteration = 0
+        
+        logger.info(f"Параметры получения: батч={limit}, макс_итераций={max_iterations}, максимум_подписчиков={limit*max_iterations}")
         
         while iteration < max_iterations:
             try:
-                logger.info(f"Итерация {iteration + 1}, offset: {offset}, получено участников: {len(all_participants)}")
+                logger.info(f"Итерация {iteration + 1}/{max_iterations}, offset: {offset}, получено участников: {len(all_participants)}")
                 
                 participants = await asyncio.wait_for(
                     client(GetParticipantsRequest(
                         channel_entity, ChannelParticipantsSearch(''), offset, limit,
                         hash=0
                     )),
-                    timeout=20  # Уменьшаю таймаут для экономии ресурсов
+                    timeout=30  # Увеличиваю таймаут обратно
                 )
                 
                 if not participants.users:
-                    logger.info(f"Больше нет участников, завершаю получение")
+                    logger.info(f"✅ Больше нет участников, завершаю получение на итерации {iteration + 1}")
                     break
-                    
+                
+                batch_size = len(participants.users)
                 all_participants.extend(participants.users)
-                offset += len(participants.users)
+                offset += batch_size
                 iteration += 1
                 
-                logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
+                logger.info(f"📊 Итерация {iteration}: получено {batch_size} участников, всего: {len(all_participants)}")
+                
+                # Проверка на неполный батч - признак конца данных
+                if batch_size < limit:
+                    logger.info(f"✅ Получен неполный батч ({batch_size} < {limit}), это последние данные")
+                    break
                 
                 # Принудительная очистка памяти
                 participants = None
                 
                 # Добавляем задержку между запросами
-                await asyncio.sleep(1)  # Уменьшаю задержку
+                await asyncio.sleep(1.5)  # Немного увеличиваю для стабильности
                 
             except asyncio.TimeoutError:
-                logger.error(f"Таймаут при получении участников на итерации {iteration}")
-                break
-            except Exception as e:
-                logger.error(f"Ошибка на итерации {iteration}: {e}")
-                if iteration > 0:  # Если уже получили хотя бы что-то, продолжаем
+                logger.error(f"⏰ Таймаут при получении участников на итерации {iteration + 1}")
+                if len(all_participants) > 0:
+                    logger.warning(f"🔄 Продолжаю с {len(all_participants)} уже полученными участниками")
                     break
                 else:
                     raise
+            except Exception as e:
+                logger.error(f"❌ Ошибка на итерации {iteration + 1}: {e}")
+                if len(all_participants) > 0:
+                    logger.warning(f"🔄 Продолжаю с {len(all_participants)} уже полученными участниками")
+                    break
+                else:
+                    raise
+        
+        # ВАЖНО: Проверяем получили ли мы всех подписчиков
+        if iteration >= max_iterations:
+            logger.warning(f"⚠️ ВНИМАНИЕ: Достигнут лимит итераций ({max_iterations})! Возможно получены НЕ ВСЕ подписчики канала {channel}")
+            logger.warning(f"⚠️ Получено: {len(all_participants)} подписчиков. В канале может быть больше!")
         
         subscribers = {}
         for p in all_participants:
@@ -82,10 +100,12 @@ async def get_subscribers_list(client, channel):
         # Очищаем память
         all_participants = None
         
-        logger.info(f"Всего получено {len(subscribers)} подписчиков для канала {channel}")
+        logger.info(f"🎯 ИТОГО получено {len(subscribers)} подписчиков для канала {channel}")
+        logger.info(f"📈 Статистика: {iteration} итераций, {len(subscribers)} уникальных подписчиков")
+        
         return subscribers
     except Exception as e:
-        logger.error(f"Критическая ошибка получения списка подписчиков для канала {channel}: {e}")
+        logger.error(f"💥 Критическая ошибка получения списка подписчиков для канала {channel}: {e}")
         raise
 
 def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
@@ -170,9 +190,42 @@ async def process_channel(client, channel_data):
         # Получение текущих подписчиков канала
         current_subscribers = await get_subscribers_list(client, channel_name)
         
-        # Определение новых подписчиков и отписавшихя
+        logger.info(f"📊 Сравнение подписчиков канала {channel_name}:")
+        logger.info(f"📊 Предыдущих подписчиков: {len(previous_subscribers)}")
+        logger.info(f"📊 Текущих подписчиков: {len(current_subscribers)}")
+        
+        # Определение новых подписчиков и отписавшихся
         new_subscribers = {key: value for key, value in current_subscribers.items() if key not in previous_subscribers}
         unsubscribed = {key: value for key, value in previous_subscribers.items() if key not in current_subscribers}
+        
+        logger.info(f"📊 Новых подписчиков: {len(new_subscribers)}")
+        logger.info(f"📊 Отписавшихся: {len(unsubscribed)}")
+        
+        # ВАЖНАЯ ПРОВЕРКА: Подозрительная ситуация с ложными отписками
+        if len(unsubscribed) > 0 and len(current_subscribers) < len(previous_subscribers):
+            logger.warning(f"🚨 ПОДОЗРИТЕЛЬНАЯ СИТУАЦИЯ для канала {channel_name}:")
+            logger.warning(f"🚨 Текущих подписчиков ({len(current_subscribers)}) МЕНЬШЕ чем было ({len(previous_subscribers)})")
+            logger.warning(f"🚨 Возможно получены НЕ ВСЕ подписчики! Отписки могут быть ЛОЖНЫМИ!")
+            
+            # Если разница в подписчиках примерно равна количеству "отписавшихся", 
+            # это скорее всего баг пагинации, а не реальные отписки
+            subscriber_diff = len(previous_subscribers) - len(current_subscribers)
+            if abs(subscriber_diff - len(unsubscribed)) <= 5:  # Допускаем погрешность в 5 человек
+                logger.error(f"⛔ КРИТИЧЕСКАЯ ОШИБКА: Разница в подписчиках ({subscriber_diff}) ≈ количеству отписавшихся ({len(unsubscribed)})")
+                logger.error(f"⛔ Это ЛОЖНЫЕ отписки из-за неполного получения данных!")
+                logger.error(f"⛔ ПРОПУСКАЮ отправку уведомления для избежания ложной тревоги")
+                
+                # Обновляем только текущих подписчиков в БД, но НЕ отправляем уведомление
+                TABLE.update_item(
+                    Key={'channel_id': channel_name, 'date': date},
+                    UpdateExpression="set subscribers = :s, last_update = :u",
+                    ExpressionAttributeValues={
+                        ':s': json.dumps(current_subscribers, ensure_ascii=False),
+                        ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    }
+                )
+                logger.info(f"✅ Обновлены данные в БД для {channel_name} БЕЗ отправки уведомления")
+                return ("updated_no_notification", channel_name)
         
         # Проверка наличия изменений в подписчиках
         if new_subscribers or unsubscribed:
@@ -242,10 +295,10 @@ async def main():
             
         tasks = [process_channel(client, channel_data) for channel_data in valid_channels]
         
-        # Добавляем общий таймаут на обработку всех каналов
+        # Добавляем общий таймаут на обработку всех каналов (увеличен для больших каналов)
         results = await asyncio.wait_for(
             asyncio.gather(*tasks, return_exceptions=True),
-            timeout=300  # 5 минут на все каналы
+            timeout=600  # 10 минут на все каналы для обработки больших каналов
         )
         
         for result in results:
