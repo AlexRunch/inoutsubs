@@ -30,6 +30,21 @@ async def get_subscribers_list(client, channel):
     try:
         logger.info(f"Начинаю получение подписчиков для канала {channel}")
         channel_entity = await client.get_entity(channel)
+        
+        # Определяем тип канала для диагностики
+        channel_type = "неизвестный"
+        if hasattr(channel_entity, 'broadcast'):
+            if channel_entity.broadcast:
+                channel_type = "публичный канал"
+            else:
+                channel_type = "группа/супергруппа"
+        
+        if hasattr(channel_entity, 'megagroup') and channel_entity.megagroup:
+            channel_type = "супергруппа"
+            
+        logger.info(f"📺 Тип канала {channel}: {channel_type}")
+        logger.warning(f"⚠️ ВНИМАНИЕ: Боты имеют ограниченный доступ к участникам {channel_type}")
+        
         all_participants = []
         offset = 0
         limit = 100  # Увеличиваю обратно для получения всех подписчиков
@@ -52,6 +67,12 @@ async def get_subscribers_list(client, channel):
                 
                 if not participants.users:
                     logger.info(f"✅ Больше нет участников, завершаю получение на итерации {iteration + 1}")
+                    
+                    # ВАЖНО: Проверяем не слишком ли мало итераций для большого канала
+                    if iteration < 5 and len(all_participants) < 500:
+                        logger.warning(f"🤔 ПОДОЗРИТЕЛЬНО: Только {iteration + 1} итераций для канала с {len(all_participants)} участниками")
+                        logger.warning(f"🤔 Возможно Telegram API ограничивает доступ бота к полному списку участников")
+                    
                     break
                 
                 batch_size = len(participants.users)
@@ -226,6 +247,29 @@ async def process_channel(client, channel_data):
                 )
                 logger.info(f"✅ Обновлены данные в БД для {channel_name} БЕЗ отправки уведомления")
                 return ("updated_no_notification", channel_name)
+        
+        # ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Telegram API ограничения для ботов
+        # Если бот видит примерно такое же количество подписчиков как и раньше,
+        # но не получает новых - это может быть ограничение API
+        if (len(current_subscribers) <= len(previous_subscribers) + 10 and 
+            len(current_subscribers) >= len(previous_subscribers) - 10 and
+            len(new_subscribers) == 0 and len(unsubscribed) == 0):
+            
+            logger.info(f"📊 Стабильные данные для канала {channel_name}:")
+            logger.info(f"📊 Изменений нет, возможно из-за ограничений Telegram API для ботов")
+            logger.info(f"📊 Это нормально для больших публичных каналов")
+            
+            # Просто обновляем данные без уведомления
+            TABLE.update_item(
+                Key={'channel_id': channel_name, 'date': date},
+                UpdateExpression="set subscribers = :s, last_update = :u",
+                ExpressionAttributeValues={
+                    ':s': json.dumps(current_subscribers, ensure_ascii=False),
+                    ':u': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                }
+            )
+            logger.info(f"✅ Обновлены стабильные данные для {channel_name}")
+            return ("stable_data", channel_name)
         
         # Проверка наличия изменений в подписчиках
         if new_subscribers or unsubscribed:
