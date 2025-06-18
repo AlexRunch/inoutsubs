@@ -166,13 +166,10 @@ async def get_subscribers_list(client, channel):
             offset += len(participants.users)
             logger.info(f"Получено {len(all_participants)} уникальных подписчиков для канала {channel}")
             
-            # Если получили меньше пользователей чем лимит, возможно это последний batch
+            # Если получили меньше пользователей чем лимит - это последний batch, завершаем
             if len(participants.users) < limit:
-                logger.info(f"Получено {len(participants.users)} пользователей (меньше лимита {limit}). Возможно, это последний batch.")
-                # Делаем еще один запрос для проверки
-                offset += len(participants.users)
-                await asyncio.sleep(1)
-                continue
+                logger.info(f"Получено {len(participants.users)} пользователей (меньше лимита {limit}). Завершаем получение.")
+                break
             
             # Добавляем задержку между запросами
             await asyncio.sleep(1)
