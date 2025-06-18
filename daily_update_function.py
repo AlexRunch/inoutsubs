@@ -37,48 +37,19 @@ async def get_subscribers_list(client, channel):
         all_participants = []
         offset = 0
         limit = 200
-        empty_responses = 0  # Счетчик пустых ответов
-        max_empty_responses = 3  # Максимум пустых ответов подряд
         
         while True:
             participants = await client(GetParticipantsRequest(
                 channel_entity, ChannelParticipantsSearch(''), offset, limit,
                 hash=0
             ))
-            
             if not participants.users:
-                empty_responses += 1
-                logger.info(f"Пустой ответ #{empty_responses} для offset {offset}")
-                
-                if empty_responses >= max_empty_responses:
-                    logger.info(f"Получено {max_empty_responses} пустых ответов подряд. Завершаем получение подписчиков.")
-                    break
-                    
-                # Увеличиваем offset и пробуем еще раз
-                offset += limit
-                await asyncio.sleep(2)  # Увеличиваем задержку при пустых ответах
-                continue
-            
-            # Если получили пользователей, сбрасываем счетчик пустых ответов
-            empty_responses = 0
-            
-            # Проверяем, не получили ли мы тех же пользователей (защита от зацикливания)
-            new_users = [user for user in participants.users if user.id not in [p.id for p in all_participants]]
-            
-            if not new_users:
-                logger.info(f"Все пользователи в batch уже получены ранее. Завершаем.")
                 break
-                
-            all_participants.extend(new_users)
+            all_participants.extend(participants.users)
             offset += len(participants.users)
-            logger.info(f"Получено {len(all_participants)} уникальных подписчиков для канала {channel}")
+            logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
             
-            # Если получили меньше пользователей чем лимит - это последний batch, завершаем
-            if len(participants.users) < limit:
-                logger.info(f"Получено {len(participants.users)} пользователей (меньше лимита {limit}). Завершаем получение.")
-                break
-            
-            # Добавляем задержку между запросами
+            # Добавляем небольшую задержку, чтобы избежать ограничений API
             await asyncio.sleep(1)
         
         subscribers = {}
@@ -201,62 +172,37 @@ async def process_channel(client, channel_data):
 
 async def main():
     try:
-        logger.info("=== НАЧАЛО ВЫПОЛНЕНИЯ ФУНКЦИИ ===")
-        
         # Используем MemorySession вместо SQLite для работы в среде Lambda
-        logger.info("Создание Telegram клиента...")
         client = TelegramClient(MemorySession(), API_ID, API_HASH)
-        
-        logger.info("Подключение к Telegram...")
         await client.start(bot_token=BOT_TOKEN)
-        logger.info("✅ Успешно подключились к Telegram")
         
         # Получение всех каналов из DynamoDB
-        logger.info("Получение списка каналов из DynamoDB...")
         response = TABLE.scan()
         channels = response['Items']
-        logger.info(f"✅ Найдено {len(channels)} каналов для обработки")
+        logger.info(f"Найдено {len(channels)} каналов для обработки")
         
         # Логирование данных каналов
-        for i, channel in enumerate(channels):
-            logger.info(f"Канал {i+1}/{len(channels)}: {channel['channel_id']} - {mask_email(channel.get('email', 'no_email_provided@example.com'))}")
+        for channel in channels:
+            logger.info(f"Данные канала: {channel['channel_id']} - {mask_email(channel.get('email', 'no_email_provided@example.com'))}")
         
         channels_processed = 0
         channels_updated = 0
         
-        logger.info("Начинаем обработку каналов...")
+        # Создание задач для обработки каждого канала
+        tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
         
-        # Обрабатываем каналы ПОСЛЕДОВАТЕЛЬНО вместо параллельно для отладки
-        for i, channel_data in enumerate(channels):
-            if 'channel_id' in channel_data and 'date' in channel_data:
-                logger.info(f"=== ОБРАБОТКА КАНАЛА {i+1}/{len(channels)}: {channel_data['channel_id']} ===")
-                try:
-                    result = await process_channel(client, channel_data)
-                    logger.info(f"✅ Канал {channel_data['channel_id']} обработан. Результат: {result}")
-                    channels_processed += 1
-                    if isinstance(result, tuple) and result[0] == "updated":
-                        channels_updated += 1
-                except Exception as e:
-                    logger.error(f"❌ Ошибка обработки канала {channel_data['channel_id']}: {e}")
-                    channels_processed += 1
-            else:
-                logger.warning(f"⚠️ Пропущен канал без channel_id или date: {channel_data}")
+        for result in results:
+            channels_processed += 1
+            if isinstance(result, tuple) and result[0] == "updated":
+                channels_updated += 1
         
-        logger.info(f"=== ИТОГИ ===")
         logger.info(f"Обработано каналов: {channels_processed}")
         logger.info(f"Обновлено каналов (отправлены email): {channels_updated}")
         
-        logger.info("Отключение от Telegram...")
         await client.disconnect()
-        logger.info("✅ Успешно отключились от Telegram")
-        
-        logger.info("=== ФУНКЦИЯ ЗАВЕРШЕНА УСПЕШНО ===")
-        
     except Exception as e:
-        logger.error(f"❌ КРИТИЧЕСКАЯ ОШИБКА в main: {e}")
-        logger.error(f"Тип ошибки: {type(e).__name__}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+        logger.error(f"Ошибка в main: {e}")
         raise
 
 def lambda_handler(event, context):
