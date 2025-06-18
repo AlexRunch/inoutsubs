@@ -478,6 +478,32 @@ async def get_subscribers_list_enhanced(client, channel):
             except Exception as e:
                 logger.warning(f"⚠️ Стратегия 3 ('{term}') недоступна: {e}")
         
+        # 4. ЭКСПЕРИМЕНТАЛЬНЫЕ МЕТОДЫ для получения недостающих участников
+        if len(all_participants) < 1000:  # Если все еще недостаточно
+            logger.info("🧪 Экспериментальные методы получения участников")
+            
+            # Метод 4a: Поиск с дополнительными символами
+            extra_terms = ['0', '1', '2', '3', '4', '5', '_', '-', '.']
+            for term in extra_terms[:3]:
+                try:
+                    participants_extra = await get_participants_with_filter(client, channel_entity, ChannelParticipantsSearch(term), 200)
+                    unique_extra = [p for p in participants_extra if p.id not in [u.id for u in all_participants]]
+                    all_participants.extend(unique_extra)
+                    logger.info(f"🧪 Доп. поиск '{term}': получено {len(unique_extra)} новых участников")
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"⚠️ Доп. поиск '{term}' недоступен: {e}")
+            
+            # Метод 4b: Попробуем получить через разные офсеты
+            try:
+                logger.info("🧪 Альтернативная пагинация с большими офсетами")
+                alt_participants = await get_participants_alternative_pagination(client, channel_entity, len(all_participants))
+                unique_alt = [p for p in alt_participants if p.id not in [u.id for u in all_participants]]
+                all_participants.extend(unique_alt)
+                logger.info(f"🧪 Альтернативная пагинация: получено {len(unique_alt)} новых участников")
+            except Exception as e:
+                logger.warning(f"⚠️ Альтернативная пагинация недоступна: {e}")
+        
         # Удаляем дубликаты по ID
         unique_participants = {}
         for p in all_participants:
@@ -611,6 +637,32 @@ async def get_subscribers_list_admin(client, channel):
                 except Exception as e:
                     logger.warning(f"⚠️ Поиск '{term}' недоступен: {e}")
         
+        # 4. ЭКСПЕРИМЕНТАЛЬНЫЕ МЕТОДЫ для получения недостающих участников
+        if len(all_participants) < 1000:  # Если все еще недостаточно
+            logger.info("🧪 Экспериментальные методы получения участников")
+            
+            # Метод 4a: Поиск с дополнительными символами
+            extra_terms = ['0', '1', '2', '3', '4', '5', '_', '-', '.']
+            for term in extra_terms[:3]:
+                try:
+                    participants_extra = await get_participants_with_filter(client, channel_entity, ChannelParticipantsSearch(term), 200)
+                    unique_extra = [p for p in participants_extra if p.id not in [u.id for u in all_participants]]
+                    all_participants.extend(unique_extra)
+                    logger.info(f"🧪 Доп. поиск '{term}': получено {len(unique_extra)} новых участников")
+                    await asyncio.sleep(2)
+                except Exception as e:
+                    logger.warning(f"⚠️ Доп. поиск '{term}' недоступен: {e}")
+            
+            # Метод 4b: Попробуем получить через разные офсеты
+            try:
+                logger.info("🧪 Альтернативная пагинация с большими офсетами")
+                alt_participants = await get_participants_alternative_pagination(client, channel_entity, len(all_participants))
+                unique_alt = [p for p in alt_participants if p.id not in [u.id for u in all_participants]]
+                all_participants.extend(unique_alt)
+                logger.info(f"🧪 Альтернативная пагинация: получено {len(unique_alt)} новых участников")
+            except Exception as e:
+                logger.warning(f"⚠️ Альтернативная пагинация недоступна: {e}")
+        
         # Удаляем дубликаты по ID
         unique_participants = {}
         for p in all_participants:
@@ -669,9 +721,18 @@ async def get_all_participants_admin(client, channel_entity, max_participants=10
             
             logger.info(f"📊 Админская итерация {iteration + 1}: получено {batch_size} участников, всего: {len(participants)}")
             
+            # ДИАГНОСТИКА: Анализируем типы полученных участников
+            active_users = [u for u in result.users if not u.deleted and not getattr(u, 'bot', False)]
+            deleted_users = [u for u in result.users if u.deleted]
+            bot_users = [u for u in result.users if getattr(u, 'bot', False)]
+            
+            logger.info(f"🔍 Анализ батча: активных={len(active_users)}, удаленных={len(deleted_users)}, ботов={len(bot_users)}")
+            
             # Проверка на неполный батч
             if batch_size < limit:
                 logger.info(f"✅ Получен последний неполный батч ({batch_size} < {limit})")
+                logger.warning(f"⚠️ ВНИМАНИЕ: API вернул неполный батч на итерации {iteration + 1}")
+                logger.warning(f"⚠️ Это может означать что есть еще участники, но API их не отдает")
                 break
             
             # Проверка лимита
@@ -696,5 +757,54 @@ async def get_all_participants_admin(client, channel_entity, max_participants=10
             else:
                 raise
     
+    # ФИНАЛЬНАЯ ДИАГНОСТИКА
+    total_active = [u for u in participants if not u.deleted and not getattr(u, 'bot', False)]
+    total_deleted = [u for u in participants if u.deleted]
+    total_bots = [u for u in participants if getattr(u, 'bot', False)]
+    
+    logger.info(f"👑 ФИНАЛЬНАЯ СТАТИСТИКА:")
+    logger.info(f"👑 Всего участников: {len(participants)}")
+    logger.info(f"👑 Активных пользователей: {len(total_active)}")
+    logger.info(f"👑 Удаленных аккаунтов: {len(total_deleted)}")
+    logger.info(f"👑 Ботов: {len(total_bots)}")
     logger.info(f"👑 Админский метод: получено {len(participants)} участников за {iteration + 1} итераций")
+    
+    return participants
+
+async def get_participants_alternative_pagination(client, channel_entity, current_count):
+    """
+    Альтернативная пагинация для получения недостающих участников
+    Пробуем разные стартовые офсеты
+    """
+    participants = []
+    
+    # Пробуем разные стартовые точки
+    test_offsets = [current_count, current_count + 50, current_count + 100, 300, 500, 700]
+    
+    for start_offset in test_offsets:
+        try:
+            logger.info(f"🧪 Тестируем офсет {start_offset}")
+            
+            result = await asyncio.wait_for(
+                client(GetParticipantsRequest(
+                    channel_entity, 
+                    ChannelParticipantsSearch(''),
+                    start_offset, 
+                    100, 
+                    hash=0
+                )),
+                timeout=30
+            )
+            
+            if result.users:
+                participants.extend(result.users)
+                logger.info(f"🧪 Офсет {start_offset}: получено {len(result.users)} участников")
+            else:
+                logger.info(f"🧪 Офсет {start_offset}: нет данных")
+                
+            await asyncio.sleep(2)
+            
+        except Exception as e:
+            logger.warning(f"⚠️ Офсет {start_offset} недоступен: {e}")
+    
     return participants
