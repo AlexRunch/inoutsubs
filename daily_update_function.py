@@ -17,9 +17,24 @@ logger = logging.getLogger()
 logger.setLevel(logging.DEBUG)
 
 # Конфигурация Telegram API
-API_ID = 24502638
-API_HASH = '751d5f310032a2f2b1ec888bd5fc7fcb'
-BOT_TOKEN = '7512734081:AAGVNe3SGMdY1AnaJwu6_mN4bKTxp3Z7hJs'
+API_ID = os.getenv('TELEGRAM_API_ID')
+API_HASH = os.getenv('TELEGRAM_API_HASH')  
+BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')
+
+# Проверка переменных окружения
+if not all([API_ID, API_HASH, BOT_TOKEN]):
+    missing_vars = [var for var in ['TELEGRAM_API_ID', 'TELEGRAM_API_HASH', 'TELEGRAM_BOT_TOKEN'] if not os.getenv(var)]
+    error_message = f"Missing Telegram API environment variables: {', '.join(missing_vars)}"
+    logger.error(error_message)
+    raise ValueError(error_message)
+
+try:
+    API_ID = int(API_ID)
+except ValueError:
+    logger.error(f"API_ID должен быть целым числом, получено: {API_ID}")
+    raise ValueError(f"API_ID должен быть целым числом")
+
+logger.info("Переменные окружения Telegram API успешно загружены")
 
 # Конфигурация DynamoDB и Brevo
 DYNAMODB = boto3.resource('dynamodb', region_name='eu-north-1')
@@ -33,24 +48,48 @@ if not BREVO_API_KEY:
 
 async def get_subscribers_list(client, channel):
     try:
+        logger.info(f"Начинаю получение подписчиков для канала {channel}")
         channel_entity = await client.get_entity(channel)
         all_participants = []
         offset = 0
-        limit = 200
+        limit = 100  # Уменьшаю лимит для стабильности
+        max_iterations = 50  # Ограничиваю количество итераций
+        iteration = 0
         
-        while True:
-            participants = await client(GetParticipantsRequest(
-                channel_entity, ChannelParticipantsSearch(''), offset, limit,
-                hash=0
-            ))
-            if not participants.users:
+        while iteration < max_iterations:
+            try:
+                logger.info(f"Итерация {iteration + 1}, offset: {offset}, получено участников: {len(all_participants)}")
+                
+                participants = await asyncio.wait_for(
+                    client(GetParticipantsRequest(
+                        channel_entity, ChannelParticipantsSearch(''), offset, limit,
+                        hash=0
+                    )),
+                    timeout=30  # Таймаут 30 секунд на запрос
+                )
+                
+                if not participants.users:
+                    logger.info(f"Больше нет участников, завершаю получение")
+                    break
+                    
+                all_participants.extend(participants.users)
+                offset += len(participants.users)
+                iteration += 1
+                
+                logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
+                
+                # Добавляем задержку между запросами
+                await asyncio.sleep(2)
+                
+            except asyncio.TimeoutError:
+                logger.error(f"Таймаут при получении участников на итерации {iteration}")
                 break
-            all_participants.extend(participants.users)
-            offset += len(participants.users)
-            logger.info(f"Получено {len(all_participants)} подписчиков для канала {channel}")
-            
-            # Добавляем небольшую задержку, чтобы избежать ограничений API
-            await asyncio.sleep(1)
+            except Exception as e:
+                logger.error(f"Ошибка на итерации {iteration}: {e}")
+                if iteration > 0:  # Если уже получили хотя бы что-то, продолжаем
+                    break
+                else:
+                    raise
         
         subscribers = {}
         for p in all_participants:
@@ -60,7 +99,7 @@ async def get_subscribers_list(client, channel):
         logger.info(f"Всего получено {len(subscribers)} подписчиков для канала {channel}")
         return subscribers
     except Exception as e:
-        logger.error(f"Ошибка получения списка подписчиков для канала {channel}: {e}")
+        logger.error(f"Критическая ошибка получения списка подписчиков для канала {channel}: {e}")
         raise
 
 def send_email(channel_name, new_subscribers, unsubscribed, recipient_email):
@@ -171,15 +210,26 @@ async def process_channel(client, channel_data):
         return ("error", channel_name)
 
 async def main():
+    logger.info("=== ЗАПУСК DAILY UPDATE ФУНКЦИИ ===")
     try:
+        logger.info("Инициализация Telegram клиента...")
         # Используем MemorySession вместо SQLite для работы в среде Lambda
         client = TelegramClient(MemorySession(), API_ID, API_HASH)
-        await client.start(bot_token=BOT_TOKEN)
         
+        # Добавляем таймаут на подключение
+        await asyncio.wait_for(client.start(bot_token=BOT_TOKEN), timeout=30)
+        logger.info("Telegram клиент успешно подключен")
+        
+        logger.info("Получение каналов из DynamoDB...")
         # Получение всех каналов из DynamoDB
         response = TABLE.scan()
         channels = response['Items']
         logger.info(f"Найдено {len(channels)} каналов для обработки")
+        
+        if not channels:
+            logger.warning("Нет каналов для обработки")
+            await client.disconnect()
+            return
         
         # Логирование данных каналов
         for channel in channels:
@@ -188,28 +238,75 @@ async def main():
         channels_processed = 0
         channels_updated = 0
         
+        logger.info("Начинаю обработку каналов...")
         # Создание задач для обработки каждого канала
-        tasks = [process_channel(client, channel_data) for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+        valid_channels = [channel_data for channel_data in channels if 'channel_id' in channel_data and 'date' in channel_data]
+        logger.info(f"Валидных каналов для обработки: {len(valid_channels)}")
+        
+        if not valid_channels:
+            logger.warning("Нет валидных каналов для обработки")
+            await client.disconnect()
+            return
+            
+        tasks = [process_channel(client, channel_data) for channel_data in valid_channels]
+        
+        # Добавляем общий таймаут на обработку всех каналов
+        results = await asyncio.wait_for(
+            asyncio.gather(*tasks, return_exceptions=True),
+            timeout=300  # 5 минут на все каналы
+        )
         
         for result in results:
             channels_processed += 1
             if isinstance(result, tuple) and result[0] == "updated":
                 channels_updated += 1
+            elif isinstance(result, Exception):
+                logger.error(f"Ошибка при обработке канала: {result}")
         
+        logger.info(f"=== ЗАВЕРШЕНИЕ ОБРАБОТКИ ===")
         logger.info(f"Обработано каналов: {channels_processed}")
         logger.info(f"Обновлено каналов (отправлены email): {channels_updated}")
         
         await client.disconnect()
+        logger.info("Telegram клиент отключен")
+        
+    except asyncio.TimeoutError:
+        logger.error("Общий таймаут выполнения функции")
+        raise
     except Exception as e:
-        logger.error(f"Ошибка в main: {e}")
+        logger.error(f"Критическая ошибка в main: {e}")
         raise
 
 def lambda_handler(event, context):
+    logger.info(f"=== LAMBDA HANDLER ЗАПУЩЕН ===")
+    logger.info(f"Event: {json.dumps(event, default=str)}")
+    logger.info(f"Context: timeout={context.get_remaining_time_in_millis()}ms")
+    
     try:
+        logger.info("Запуск основной функции...")
         loop = asyncio.get_event_loop()
         loop.run_until_complete(main())
-        return {'statusCode': 200, 'body': 'Ежедневная рассылка завершена.'}
+        
+        response = {
+            'statusCode': 200, 
+            'body': json.dumps({
+                'message': 'Ежедневная рассылка завершена успешно',
+                'timestamp': datetime.now().isoformat()
+            })
+        }
+        logger.info(f"Успешное завершение: {response}")
+        return response
+        
     except Exception as e:
-        logger.error(f"Ошибка в lambda_handler: {e}")
-        return {'statusCode': 500, 'body': f'Ошибка: {e}'.encode('utf-8')}
+        error_message = f"Критическая ошибка в lambda_handler: {str(e)}"
+        logger.error(error_message)
+        
+        response = {
+            'statusCode': 500,
+            'body': json.dumps({
+                'error': error_message,
+                'timestamp': datetime.now().isoformat()
+            })
+        }
+        logger.error(f"Возвращаю ошибку: {response}")
+        return response
